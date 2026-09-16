@@ -1,0 +1,102 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ───────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: hotelverify_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       hotelverify_db
+      POSTGRES_USER:     hotelverify
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotelverify -d hotelverify_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hotelverify_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Backend API ──────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hotelverify_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV:     development
+      PORT:         5000
+      DATABASE_URL: postgresql://hotelverify:password@db:5432/hotelverify_db
+      REDIS_URL:    redis://redis:6379
+      JWT_SECRET:   local_dev_secret_please_change_in_production
+      FRONTEND_URL: http://localhost:5173
+      STORAGE_TYPE: local
+      UPLOADS_DIR:  /app/uploads
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Frontend (Vite dev server) ───────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hotelverify_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      VITE_API_URL: http://localhost:5000
+    ports:
+      - "5173:5173"
+
+  # ── PgAdmin (optional dev tool) ──────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hotelverify_pgadmin
+    restart: unless-stopped
+    profiles: ["dev-tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@hotelverify.in
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  pg_data:
+  redis_data:
