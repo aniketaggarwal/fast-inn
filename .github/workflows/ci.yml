@@ -64,3 +64,6 @@ jobs:
         run: npm run test:issuer
         env:
           DATABASE_URL: ${{ env.ISSUER_DATABASE_URL }}
+
+      - name: Build web
+        run: npm run build --workspace=web

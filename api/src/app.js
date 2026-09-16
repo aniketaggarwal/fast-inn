@@ -4,6 +4,9 @@ const helmet = require("helmet");
 const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
 const hotelRoomsRoutes = require("./routes/hotelRooms");
+const hotelsRoutes = require("./routes/hotels");
+const bookingsRoutes = require("./routes/bookings");
+const hotelBookingsRoutes = require("./routes/hotelBookings");
 
 function createApp() {
   const app = express();
@@ -14,8 +17,11 @@ function createApp() {
   app.use(healthRoutes);
   app.use(authRoutes);
   app.use(hotelRoomsRoutes);
+  app.use(hotelsRoutes);
+  app.use(bookingsRoutes);
+  app.use(hotelBookingsRoutes);
 
-  // Milestone 2+ will add: /hotels, /bookings, /checkin, /compliance, /admin.
+  // Milestone 4+ will add: /checkin, /compliance, /admin.
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

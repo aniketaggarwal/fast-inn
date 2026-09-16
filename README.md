@@ -42,7 +42,14 @@ npm run migrate
 npm run seed
 npm run dev:api      # http://localhost:4000
 npm run dev:issuer   # http://localhost:4001 (new terminal)
+npm run dev:web      # http://localhost:5173 (new terminal)
 ```
+
+`web/` is a guest booking flow (browse hotels → check availability → book →
+manage bookings) and a hotel staff dashboard (rooms + bookings for their own
+hotel), gated by login. Self-registration at `/login` always creates a
+GUEST account; log in as `staff.ramaiah@hotelverify.test` /
+`staff.mgroad@hotelverify.test` to see the staff side.
 
 Seeded accounts (password for all: `Password123!`):
 
@@ -77,9 +84,10 @@ database.
 ## Repo layout
 
 See [HOTELVERIFY_BUILD_SPEC.md § Repo layout](HOTELVERIFY_BUILD_SPEC.md#repo-layout-monorepo-npm-workspaces)
-for the target structure across all 8 milestones. Only `issuer/`, `api/`,
-and `scripts/` exist so far — `web/`, `guest-app/`, and `packages/credentials/`
-land in later milestones.
+for the target structure across all 8 milestones. `issuer/`, `api/`, `web/`,
+and `scripts/` exist so far — `guest-app/` (the dedicated wallet/consent PWA)
+and `packages/credentials/` land in Milestone 3+, once there's an actual
+credential to hold.
 
 ## Testing coverage philosophy
 

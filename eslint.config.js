@@ -1,4 +1,5 @@
 const globals = require("globals");
+const react = require("eslint-plugin-react");
 
 module.exports = [
   {
@@ -33,6 +34,32 @@ module.exports = [
         beforeEach: "readonly",
         afterEach: "readonly",
       },
+    },
+  },
+  {
+    // web/ is a Vite+React app: ESM (import/export, import.meta), not
+    // CommonJS like the backend services — matching standard Vite
+    // conventions here is less friction than forcing require() through
+    // Vite's own module system.
+    files: ["web/**/*.{js,jsx}"],
+    plugins: { react },
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.browser,
+      },
+    },
+    rules: {
+      "no-unused-vars": "warn",
+      "no-undef": "error",
+      // Without this, plain no-unused-vars doesn't know <Foo /> in JSX
+      // counts as using the Foo identifier, and flags every component
+      // import as unused.
+      "react/jsx-uses-vars": "error",
     },
   },
 ];

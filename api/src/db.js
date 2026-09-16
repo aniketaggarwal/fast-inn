@@ -1,4 +1,12 @@
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// pg's default DATE (OID 1082) parser returns a JS Date built at local
+// midnight, which then serializes to JSON as a UTC timestamp on the
+// *previous* day in any timezone ahead of UTC (e.g. 2026-09-17 becomes
+// "2026-09-16T18:30:00.000Z" in IST). check_in/check_out are plain
+// calendar dates with no time component, so keep them as the "YYYY-MM-DD"
+// string Postgres already sends over the wire.
+types.setTypeParser(1082, (value) => value);
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -23,4 +31,24 @@ async function withTenantTransaction(hotelId, fn) {
   }
 }
 
-module.exports = { pool, withTenantTransaction };
+// Guest-side counterpart: a guest's bookings span many hotels, so there's
+// no single hotel_id to scope by. RLS on bookings (see the
+// bookings-rls-guest-path migration) instead authorizes rows where
+// guest_user_id matches app.guest_id.
+async function withGuestTransaction(guestId, fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.guest_id', $1, true)", [guestId]);
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, withTenantTransaction, withGuestTransaction };

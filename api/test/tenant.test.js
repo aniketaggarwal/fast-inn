@@ -22,9 +22,14 @@ beforeAll(async () => {
   staffBToken = loginB.body.accessToken;
 });
 
+const extraGuestIds = [];
+
 afterAll(async () => {
   await deleteHotel(hotelA);
   await deleteHotel(hotelB);
+  for (const id of extraGuestIds) {
+    await deleteUser(id);
+  }
   await pool.end();
 });
 
@@ -66,13 +71,12 @@ describe("tenant isolation on /hotel/rooms", () => {
     const registered = await request(app)
       .post("/auth/register")
       .send({ email: guestEmail, password: "Password123!" });
+    extraGuestIds.push(registered.body.user.id);
 
     const res = await request(app)
       .get("/hotel/rooms")
       .set("Authorization", `Bearer ${registered.body.accessToken}`);
     expect(res.status).toBe(403);
-
-    await deleteUser(registered.body.user.id);
   });
 
   it("staff B can read their own room while staff A cannot", async () => {

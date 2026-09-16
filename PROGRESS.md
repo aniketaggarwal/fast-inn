@@ -1,5 +1,106 @@
 # PROGRESS
 
+## Milestone 2 — Booking core (done)
+
+Deliverable per the build spec: hotels, rooms, availability, book/cancel,
+guest + hotel UI. Done-when: 20 concurrent bookings for the same room →
+exactly 1 success.
+
+### What works
+
+- **API**: `GET /hotels?city=`, `GET /hotels/:id/availability?from=&to=`
+  (public, no auth — matches Section 6), `POST /bookings`,
+  `GET /bookings/mine`, `POST /bookings/:id/cancel` (GUEST-only),
+  `GET /hotel/bookings` (tenant-scoped, HOTEL_STAFF/HOTEL_ADMIN).
+- **Booking targets a specific room**, not a room-type pool — this matches
+  how `room_availability` is keyed (`PK (room_id, stay_date)`) and how
+  Section 9.5 phrases the concurrency test ("20 concurrent requests for the
+  same room"). A minor, deliberate deviation from Section 6's abbreviated
+  `{ hotelId, roomType, from, to }` shape.
+- **Concurrency**: the composite primary key on `room_availability` is the
+  only thing preventing double-booking — no application-level locking, no
+  `SELECT ... FOR UPDATE`. `POST /bookings` inserts one `bookings` row plus
+  one `room_availability` row per night inside a single transaction; a
+  conflicting insert hits the PK and the whole transaction rolls back,
+  returning 409. Verified with 20 truly concurrent requests
+  (`Promise.all`, not a loop) for the same room and dates: exactly 1
+  succeeds, 19 get 409, and `room_availability` ends up with exactly the
+  right number of rows — not more, not fewer.
+- **web/**: a real React+Vite+Tailwind app, not a mockup — login/register
+  (self-registration is GUEST-only, matching the API), browse hotels, check
+  availability, book, view/cancel own bookings, and a hotel staff dashboard
+  (own hotel's rooms + bookings, via the same tenant-scoped API). Manually
+  driven end-to-end in a browser: booked a room as `guest1`, watched it flip
+  to "Unavailable" for other guests, cancelled it, watched it free back up,
+  and confirmed `staff.ramaiah` sees it on their dashboard while never
+  seeing `staff.mgroad`'s hotel.
+
+### Bugs found and fixed while building this (worth knowing for the viva)
+
+- **RLS blocked every booking outright.** `bookings` has `FORCE ROW LEVEL
+  SECURITY` (Milestone 1), and its original policy only recognized a
+  single-tenant staff session (`app.hotel_id`). A guest's bookings span many
+  hotels, so no single `hotel_id` is ever "theirs" — every guest query was
+  silently rejected. Fixed with a second RLS branch keyed on `app.guest_id`
+  (migration `bookings-rls-guest-path`) and a `withGuestTransaction` helper
+  in `api/src/db.js`, the guest-side counterpart to `withTenantTransaction`.
+- **`current_setting(name, true)` returned `''`, not `NULL`, on reused pool
+  connections.** Once a custom GUC like `app.guest_id` has been set at least
+  once on a physical connection, Postgres remembers it exists; a later
+  transaction on that same pooled connection that never sets it again gets
+  `''` back instead of `NULL`, and `''::uuid` throws. This only shows up
+  under real connection reuse — exactly what a pooled app does in
+  production — so it's exactly the kind of bug a single-request smoke test
+  would miss. Fixed with `NULLIF(current_setting(...), '')::uuid` on all
+  four RLS policies (migration `rls-nullif-empty-guc`). Added a dedicated
+  `api/test/rls.test.js` that queries `bookings` with **no** app-level
+  ownership filter at all, to prove RLS itself is doing the blocking, not
+  just each route's own `WHERE` clause.
+- **`date` columns round-tripped as the wrong day.** `pg`'s default parser
+  turns a `DATE` into a JS `Date` at local midnight; serializing that to
+  JSON in a timezone ahead of UTC (IST here) shows the *previous* calendar
+  day (`2026-09-17` became `"2026-09-16T18:30:00.000Z"`). Caught by actually
+  looking at the rendered booking in the browser, not by the API tests
+  (which only checked status codes/room counts, not the date strings) —
+  fixed that gap too. Fixed with `pg`'s `types.setTypeParser(1082, v => v)`
+  to keep dates as the plain `YYYY-MM-DD` string Postgres already sends.
+- **Test cleanup that only ran on the happy path leaked rows into the dev
+  DB.** `concurrency.test.js` deleted its hotel/guest at the *end* of the
+  `it()` block; when an assertion above it threw (which it did, during the
+  RLS bug above), cleanup never ran and a stray "Concurrency Test Hotel"
+  row was still showing up in the UI's hotel list afterward. Moved to
+  `afterEach`/tracked-array-in-`afterAll` patterns across
+  `concurrency.test.js`, `bookings.test.js`, and `tenant.test.js` so
+  cleanup runs regardless of whether the test passed.
+
+### What was stubbed / deferred
+
+- **No refresh-token auto-retry in the frontend.** Access tokens are 15
+  minutes; the UI doesn't silently refresh on expiry, just leaves the user
+  to log in again. Fine for a demo session, a real gap for anything longer.
+- **`web/` runs as a Vite dev server in Docker**, not a production static
+  build behind nginx — matches the dev-mode pattern already used for
+  `issuer`/`api` in this environment; noted as a simplification, not a
+  target architecture.
+- **No hotel/room-management UI** (creating hotels/rooms is admin work,
+  Milestone 7) — the dashboard only reads what `scripts/seed.js` created.
+- **`web/` uses ESM** (`import`/`export`, Vite's own convention) while
+  `issuer/`/`api/` stay CommonJS — a deliberate split, not an
+  inconsistency: matching each tool's own convention is less friction than
+  forcing one style through both.
+- Found and fixed a real production CVE in the process: `react-router-dom`
+  6.x had an open-redirect advisory (GHSA-wrjc-x8rr-h8h6) with no patched
+  6.x release — upgraded to 7.18.4, which kept the same
+  `BrowserRouter`/`Routes`/`Route`/`Link`/`useNavigate` API this app uses,
+  so no code changes were needed beyond the version bump.
+
+### Next up
+
+Milestone 3 (credentials package): SD-JWT issue + verify, Ed25519 key
+generation, JWKS, disclosure selection, unit tests proving an undisclosed
+claim can't be recovered and a tampered disclosure fails. No UI. Not
+started.
+
 ## Milestone 1 — Skeleton (done)
 
 Deliverable per the build spec: monorepo with npm workspaces, docker-compose
@@ -79,12 +180,10 @@ requested with `staff.ramaiah`'s token.
   which can do anything. A dedicated low-privilege app role with that grant
   is a follow-up, likely bundled with Milestone 7 when `audit_log` starts
   being written to.
-- **RLS is enabled but untested.** The policies exist and `FORCE ROW LEVEL
-  SECURITY` is set (necessary because the dev DB role is the table owner,
-  which bypasses RLS by default otherwise), but no route uses
-  `withTenantTransaction` yet, so there's no test proving the policy
-  actually blocks a bad query. That test belongs with whichever milestone
-  first writes to `bookings`/`checkin_sessions`/`guest_register`/`consents`.
+- **RLS on `bookings` is now exercised and tested** (see Milestone 2 above
+  — it needed a real fix, not just a test). `checkin_sessions`,
+  `guest_register`, and `consents` are still untouched by any route, so
+  their policies remain unexercised until Milestones 5/7.
 - **No rate limiting, no CSRF concerns tracked yet** (pure JSON API, no
   cookie-based sessions) — deferred to Milestone 8 hardening per the plan.
 - **Dockerfiles for `issuer`/`api` are written but not build-tested** — this
