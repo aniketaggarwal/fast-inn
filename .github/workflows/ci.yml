@@ -57,6 +57,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test — credentials (100% coverage enforced)
+        run: npm run test:credentials:coverage
+
       - name: Test — api
         run: npm run test:api
 

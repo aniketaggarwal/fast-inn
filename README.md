@@ -72,26 +72,31 @@ curl -X POST http://localhost:4000/auth/login \
 ## Tests
 
 ```bash
-npm test              # both services
+npm test                          # credentials, issuer, api
+npm run test:credentials
+npm run test:credentials:coverage # fails the build under 100% coverage
 npm run test:api
 npm run test:issuer
 ```
 
-Tests run against the `DATABASE_URL` in each service's `.env` — point it at
-a real (dev) Postgres instance with migrations applied; there is no mocked
-database.
+`issuer`/`api` tests run against the `DATABASE_URL` in each service's
+`.env` — point it at a real (dev) Postgres instance with migrations
+applied; there is no mocked database. `packages/credentials` has no
+database and no service dependency at all — it's pure SD-JWT crypto over
+plain JS objects, run with plain `vitest`.
 
 ## Repo layout
 
 See [HOTELVERIFY_BUILD_SPEC.md § Repo layout](HOTELVERIFY_BUILD_SPEC.md#repo-layout-monorepo-npm-workspaces)
-for the target structure across all 8 milestones. `issuer/`, `api/`, `web/`,
-and `scripts/` exist so far — `guest-app/` (the dedicated wallet/consent PWA)
-and `packages/credentials/` land in Milestone 3+, once there's an actual
-credential to hold.
+for the target structure across all 8 milestones. `packages/credentials/`,
+`issuer/`, `api/`, `web/`, and `scripts/` exist so far — `guest-app/` (the
+dedicated wallet/consent PWA) lands once there's a real KYC flow to build a
+wallet around, Milestone 4+.
 
 ## Testing coverage philosophy
 
-Overall line coverage target is ~60%, but `packages/credentials` (once it
-exists, Milestone 3) is held to 100% — that's the module a stolen or forged
-credential slips through if it's wrong, so it's tested exhaustively; a typo
-in a dashboard component is not in the same risk class.
+Overall line coverage target is ~60%, but `packages/credentials` is held to
+100% line/branch/function/statement coverage — enforced in CI, not just
+reported — because that's the module a stolen or forged credential slips
+through if it's wrong. A typo in a dashboard component is not in the same
+risk class.

@@ -1,5 +1,80 @@
 # PROGRESS
 
+## Milestone 3 — Credentials package (done)
+
+Deliverable per the build spec: SD-JWT issue + verify, key gen, JWKS,
+disclosure selection, full unit tests, no UI. Done-when: tests prove an
+undisclosed claim cannot be recovered from the presentation, and a
+tampered disclosure fails.
+
+This is the intellectual core of the whole project (Section 3) — everything
+else is CRUD around it.
+
+### What works
+
+New workspace `packages/credentials/`, standalone and dependency-free of
+`issuer`/`api` (they'll depend on it, not the other way around):
+
+- **`src/keys.js`**: `generateIssuerKeyPair()` — Ed25519 (`EdDSA`/`OKP`) via
+  `jose`, with `kid` set to the public key's own RFC 7638 thumbprint (so
+  it's derivable, not an arbitrary extra ID to keep in sync).
+  `buildJWKS(publicKeyJwks)` / `findKeyInJWKS(jwks, kid)` — the
+  `/.well-known/jwks.json` shape and lookup, ready for rotation (multiple
+  keys, one `kid` each) per Section 9.7. No CLI script or file persistence
+  yet — that's issuer service work, Milestone 4.
+- **`src/sdjwt.js`**: `issueCredential` / `verifyCredential` implementing
+  the IETF SD-JWT pattern from Section 3a exactly as specified — each
+  claim becomes a salted disclosure `[salt, name, value]`
+  (`base64url(JSON.stringify(...))`), only its SHA-256 digest goes into
+  the signed JWT's `_sd` array, and the full disclosure set travels
+  separately to the holder. `selectDisclosures` is the holder-side
+  narrowing step for one presentation. Key binding: an optional
+  `holderPublicKeyJwk` is embedded as `cnf.jwk` at issuance (Section 3c);
+  actually verifying a presentation is *signed* by that key is Milestone 5
+  work, once there's a nonce/session to sign.
+- **31 tests, 100% line/branch/function/statement coverage**, enforced in
+  CI (`npm run test:credentials:coverage` fails the build under 100%, not
+  just reported). Covers exactly what Section 11 asks of this module: SD-JWT
+  round-trip, tampered signature rejected, tampered disclosure rejected,
+  expired credential rejected, undisclosed claim not derivable — plus:
+  zero-disclosure verification (proving the credential exists/is signed
+  without revealing anything), a forged-digest-injection attempt, wrong-
+  issuer-key rejection, and the anti-correlation property that two
+  disclosures for the same name/value get different salts and therefore
+  different digests.
+- The `revoked credential rejected` case from Section 11 is **not** here —
+  revocation is a stateful DB/cache concern (issuer's `/revocations` list,
+  a verifier's cached copy), not something a pure crypto module can check.
+  That test belongs with whichever milestone builds the revocation list
+  (Milestone 4 to expose it, Milestone 5/7 to check it).
+
+### Notable decisions worth defending in the viva
+
+- **Tampered disclosures throw, they don't silently drop.** A disclosure
+  whose digest isn't in `_sd` is evidence of forgery, not an unknown-but-
+  harmless claim — `verifyCredential` rejects the whole presentation rather
+  than quietly excluding it.
+- **The salt's actual job**, demonstrated by a dedicated test: without it,
+  `isAdult: true` would hash identically on every credential HotelVerify
+  ever issues, and hotels comparing digests across guests could correlate
+  presentations that should be unlinkable. The salt makes every digest
+  unique even for identical claim values.
+- **`packages/credentials` has zero dependency on Postgres, Express, or
+  either service.** It's pure crypto over plain JS objects — deliberately,
+  so it's the one module in this codebase that's simple enough to actually
+  reach 100% coverage honestly, and the one most worth having examiners
+  read line-by-line.
+
+### Next up
+
+Milestone 4 (KYC pipeline): upload → quality gate → OCR → template parsing
+→ confidence scoring → human review queue → on approval, call
+`issueCredential` for real and wire up the issuer's actual
+`/kyc`, `/review`, `/credentials/issue`, `/.well-known/jwks.json`,
+`/revocations` routes (this is also where `generateIssuerKeyPair`'s output
+actually gets persisted to `issuer/keys/`, gitignored, loaded at boot).
+Not started.
+
 ## Milestone 2 — Booking core (done)
 
 Deliverable per the build spec: hotels, rooms, availability, book/cancel,

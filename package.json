@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Guest-identity platform: verify once, check in anywhere, the hotel never stores your ID.",
   "workspaces": [
+    "packages/credentials",
     "issuer",
     "api",
     "web"
@@ -19,7 +20,9 @@
     "dev:issuer": "npm run dev --workspace=issuer",
     "dev:api": "npm run dev --workspace=api",
     "dev:web": "npm run dev --workspace=web",
-    "test": "npm run test --workspace=issuer && npm run test --workspace=api",
+    "test": "npm run test --workspace=credentials && npm run test --workspace=issuer && npm run test --workspace=api",
+    "test:credentials": "npm run test --workspace=credentials",
+    "test:credentials:coverage": "npm run test:coverage --workspace=credentials",
     "test:issuer": "npm run test --workspace=issuer",
     "test:api": "npm run test --workspace=api",
     "lint": "eslint ."
