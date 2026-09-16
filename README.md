@@ -1,208 +1,89 @@
-# 🏨 HotelVerify
+# HotelVerify
 
-> **DigiYatra-style digital guest verification & check-in platform for Indian hotels**
+Verify once, check in anywhere, and the hotel never stores your ID.
 
-HotelVerify replaces paper Form C with instant KYC verification, QR code check-in, and automated FRRO compliance reports — all in one B2B SaaS platform.
+A guest-identity platform for Indian hotels: a guest completes KYC once with
+an independent **Issuer** service, receives a reusable, cryptographically
+signed credential, and later proves their identity to any participating
+hotel via selective disclosure (SD-JWT) — without the hotel ever holding a
+copy of the guest's ID document.
 
----
+Full design rationale, trust model, and milestone plan: [HOTELVERIFY_BUILD_SPEC.md](HOTELVERIFY_BUILD_SPEC.md).
+Current build status: [PROGRESS.md](PROGRESS.md).
 
-## ✨ Features
+**Disclaimer:** this is a final-year academic project. The Issuer service
+simulates a KYC authority — it is not connected to Aadhaar/DigiLocker/UIDAI,
+which are not available to student projects. Statutory compliance features
+(Form C, DPDP Act alignment) are illustrative and have not been legally
+reviewed.
 
-| Feature | Description |
-|---------|-------------|
-| **OCR-powered KYC** | Tesseract.js extracts Aadhaar, PAN, Passport, Driving License fields automatically |
-| **QR Code Check-in** | Guests receive a unique QR + 6-digit PIN; staff scan at reception |
-| **Role-based Access** | Guest / Hotel Staff / Admin dashboards with JWT auth |
-| **Compliance Reports** | Auto-generate FRRO Form C-compatible JSON reports with CSV export |
-| **Email Notifications** | Booking confirmation, KYC approved/rejected emails |
-| **Real-time Queue** | Hotel staff see live KYC verification queue |
+## Architecture
 
----
+```
+guest-app (PWA)  ──KYC submit──▶  issuer/ :4001 ──▶ issuer_db (Postgres)
+      │                                │
+      └──presentation──▶  api/ :4000  ◀┘ (fetches issuer's public key)
+                              │
+                         app_db (Postgres) · Redis · MinIO
+                              ▲
+                         web/ (hotel + admin dashboards)
+```
 
-## 🛠 Tech Stack
+`issuer/` and `api/` are deliberately separate services with separate
+databases — they represent different trust domains. See Section 3 of the
+build spec.
 
-| Layer | Technology |
-|-------|-----------|
-| **API** | Node.js + Express.js |
-| **Database** | PostgreSQL 16 |
-| **Cache / OTP** | Redis 7 |
-| **Auth** | JWT (jsonwebtoken) |
-| **OCR** | tesseract.js |
-| **Frontend** | React 18 + Vite 5 + Tailwind CSS 3 |
-| **Storage** | Local disk (MVP) → AWS S3 (prod) |
-| **DevOps** | Docker + Docker Compose + GitHub Actions |
-
----
-
-## 🚀 Quick Start (Docker Compose)
+## Quick start
 
 ```bash
-# 1. Clone & setup env
-git clone <repo-url> && cd Fast-in
-cp backend/.env.example backend/.env
-
-# 2. Start everything
-docker compose up
-
-# Services:
-#   API:      http://localhost:5000
-#   Frontend: http://localhost:5173
-#   Health:   http://localhost:5000/health
+docker compose up -d postgres redis minio
+npm install
+npm run migrate
+npm run seed
+npm run dev:api      # http://localhost:4000
+npm run dev:issuer   # http://localhost:4001 (new terminal)
 ```
 
----
+Seeded accounts (password for all: `Password123!`):
 
-## 🔧 Local Development (without Docker)
+| Email | Role |
+|---|---|
+| admin@hotelverify.test | PLATFORM_ADMIN |
+| staff.ramaiah@hotelverify.test | HOTEL_STAFF (Ramaiah Grand) |
+| staff.mgroad@hotelverify.test | HOTEL_STAFF (MG Road Suites) |
+| guest1@hotelverify.test / guest2@hotelverify.test / guest3@hotelverify.test | GUEST |
 
-### Prerequisites
-- Node.js 20+
-- PostgreSQL 16
-- Redis 7
+Verify it's working:
 
 ```bash
-# Backend
-cd backend
-cp .env.example .env       # edit with your DB/Redis creds
-npm install
-psql $DATABASE_URL -f migrations/001_initial_schema.sql
-npm run dev                # http://localhost:5000
-
-# Frontend (new terminal)
-cd frontend
-npm install
-npm run dev                # http://localhost:5173
+curl http://localhost:4000/health
+curl -X POST http://localhost:4000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"staff.ramaiah@hotelverify.test","password":"Password123!"}'
 ```
 
----
+## Tests
 
-## 📡 API Reference
-
-### Auth
-```
-POST /api/auth/register    { full_name, email, phone, password, role }
-POST /api/auth/login       { email, password }
-GET  /api/auth/me          (requires JWT)
-POST /api/auth/otp/send    { phone|email, purpose }
-POST /api/auth/otp/verify  { phone|email, otp, purpose }
+```bash
+npm test              # both services
+npm run test:api
+npm run test:issuer
 ```
 
-### Guests / KYC
-```
-POST  /api/guests/kyc/upload        (multipart: id_document, face_photo)
-GET   /api/guests/kyc/status        Guest: own KYC status
-GET   /api/guests/kyc               Admin/Staff: list pending KYC
-GET   /api/guests/kyc/:id           Single KYC record
-PATCH /api/guests/kyc/:id/verify    Admin: approve
-PATCH /api/guests/kyc/:id/reject    Admin: reject with reason
-```
+Tests run against the `DATABASE_URL` in each service's `.env` — point it at
+a real (dev) Postgres instance with migrations applied; there is no mocked
+database.
 
-### Hotels
-```
-POST  /api/hotels                   Register hotel
-GET   /api/hotels                   List verified hotels
-GET   /api/hotels/:id               Single hotel
-PATCH /api/hotels/:id               Update hotel
-PATCH /api/hotels/:id/verify        Admin: verify
-PATCH /api/hotels/:id/reject        Admin: reject
-GET   /api/hotels/my/dashboard      Staff: own hotel stats
-```
+## Repo layout
 
-### Bookings
-```
-POST  /api/bookings                 Create booking (returns QR token + PIN)
-GET   /api/bookings                 List (role-filtered)
-GET   /api/bookings/:id             Single booking with QR info
-PATCH /api/bookings/:id/status      Update status
-```
+See [HOTELVERIFY_BUILD_SPEC.md § Repo layout](HOTELVERIFY_BUILD_SPEC.md#repo-layout-monorepo-npm-workspaces)
+for the target structure across all 8 milestones. Only `issuer/`, `api/`,
+and `scripts/` exist so far — `web/`, `guest-app/`, and `packages/credentials/`
+land in later milestones.
 
-### Check-in
-```
-POST /api/checkin              { booking_id, pin_code }
-POST /api/checkin/checkout     { booking_id, notes? }
-GET  /api/checkin/scan/:qrCode QR scan lookup
-GET  /api/checkin/today        Today's arrivals
-```
+## Testing coverage philosophy
 
-### Compliance
-```
-POST /api/compliance/generate         { hotel_id, report_period_start, report_period_end }
-GET  /api/compliance/reports          List reports
-GET  /api/compliance/reports/:id      Full report with guest data
-```
-
----
-
-## 🔐 Environment Variables
-
-See [`backend/.env.example`](./backend/.env.example) for all variables.
-
-Key variables:
-
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `JWT_SECRET` | Min 64-char secret key |
-| `STORAGE_TYPE` | `local` (MVP) or `s3` (prod) |
-| `FRONTEND_URL` | CORS origin |
-
----
-
-## 🗃 Database Schema
-
-7 tables: `users`, `hotels`, `guest_kyc`, `bookings`, `guest_documents`, `checkin_checkouts`, `compliance_reports`, `otp_log`
-
-See [`backend/migrations/001_initial_schema.sql`](./backend/migrations/001_initial_schema.sql)
-
----
-
-## 👤 User Roles
-
-| Role | Access |
-|------|--------|
-| `guest` | Upload KYC, create bookings, view own data |
-| `hotel_staff` | View guest queue, process check-in/out, generate reports |
-| `admin` | Full platform access, verify hotels and KYC |
-
----
-
-## 🏗 Folder Structure
-
-```
-Fast-in/
-├── backend/                 # Express API
-│   ├── migrations/          # SQL schema files
-│   ├── src/
-│   │   ├── config/          # db.js, redis.js, env.js
-│   │   ├── middleware/       # auth, roleCheck, errorHandler
-│   │   ├── routes/          # auth, guests, hotels, bookings, checkin, compliance
-│   │   ├── services/        # ocr, otp, s3, email, complianceGenerator
-│   │   └── utils/           # jwt, qrCode, validators, logger
-│   └── server.js
-├── frontend/                # React + Vite
-│   └── src/
-│       ├── components/      # KYC, HotelDashboard, ComplianceReports, Common
-│       ├── pages/           # LandingPage, LoginPage, GuestDashboard, ...
-│       ├── services/        # api.js (Axios)
-│       └── store/           # authContext.jsx
-├── .github/workflows/       # CI/CD
-└── docker-compose.yml
-```
-
----
-
-## 📋 Roadmap
-
-- [ ] DigiLocker / UIDAI API integration (real Aadhaar verification)
-- [ ] Razorpay payment integration
-- [ ] Mobile app (React Native)
-- [ ] SMS OTP via Twilio
-- [ ] PDF export for compliance reports
-- [ ] Multi-language support (Hindi, Tamil, Telugu)
-- [ ] Webhook notifications for PMS integration
-
----
-
-## 📄 License
-
-MIT © HotelVerify 2026
+Overall line coverage target is ~60%, but `packages/credentials` (once it
+exists, Milestone 3) is held to 100% — that's the module a stolen or forged
+credential slips through if it's wrong, so it's tested exhaustively; a typo
+in a dashboard component is not in the same risk class.
