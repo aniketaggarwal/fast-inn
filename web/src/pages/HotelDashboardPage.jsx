@@ -1,25 +1,42 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 
 export function HotelDashboardPage() {
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [startingId, setStartingId] = useState(null);
+
+  const load = async () => {
+    try {
+      const [roomsData, bookingsData] = await Promise.all([api.hotelRooms(), api.hotelBookings()]);
+      setRooms(roomsData.rooms);
+      setBookings(bookingsData.bookings);
+    } catch (err) {
+      setError(err.body?.error || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [roomsData, bookingsData] = await Promise.all([api.hotelRooms(), api.hotelBookings()]);
-        setRooms(roomsData.rooms);
-        setBookings(bookingsData.bookings);
-      } catch (err) {
-        setError(err.body?.error || err.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load();
   }, []);
+
+  const startCheckin = async (bookingId) => {
+    setStartingId(bookingId);
+    setError(null);
+    try {
+      const session = await api.startCheckin(bookingId);
+      navigate(`/checkin/session/${session.sessionId}`);
+    } catch (err) {
+      setError(err.body?.error || err.message);
+      setStartingId(null);
+    }
+  };
 
   if (loading) return <p className="mx-auto max-w-4xl px-4 py-8 text-sm text-slate-500">Loading…</p>;
 
@@ -53,6 +70,7 @@ export function HotelDashboardPage() {
                 <th className="px-3 py-2">Dates</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Amount</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -67,6 +85,17 @@ export function HotelDashboardPage() {
                   </td>
                   <td className="px-3 py-2">{b.status}</td>
                   <td className="px-3 py-2">₹{b.total_amount}</td>
+                  <td className="px-3 py-2">
+                    {b.status === "RESERVED" && (
+                      <button
+                        onClick={() => startCheckin(b.id)}
+                        disabled={startingId === b.id}
+                        className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {startingId === b.id ? "Starting…" : "Check in"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

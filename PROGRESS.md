@@ -1,5 +1,198 @@
 # PROGRESS
 
+## Milestone 5 — Check-in (done)
+
+Deliverable per the build spec: session + nonce QR, guest wallet consent
+screen with per-claim toggles, presentation, verification, desk screen
+flips to VERIFIED, guest register row created. Done-when: the five
+replay-rejection tests pass. Verified for real, end to end, through the
+actual browser UI — booked a room, ran KYC, staff generated a QR, guest
+selected which claims to share, approved, and the desk screen flipped to
+VERIFIED showing only the disclosed claims — not just via the 148 automated
+tests this milestone brought the suite to.
+
+This is the other cryptographically central milestone besides Milestone 3
+— everything in Section 9.4 (replay defence) lives here.
+
+### What works
+
+- **Real SD-JWT+KB presentations**, not a simplified stand-in: extended
+  `packages/credentials` with `buildPresentation`/`verifyPresentation`,
+  implementing the actual IETF SD-JWT key-binding format — `<credential
+  JWT>~<disclosure>~...~<key-binding JWT>`. The KB-JWT is signed by the
+  guest's own device key (ECDSA P-256, generated client-side via WebCrypto
+  in Milestone 4, non-extractable) over `{ nonce, aud: hotelId, iat }`.
+  Verifying it means extracting `cnf.jwk` from the *already-verified*
+  credential and checking the KB-JWT was signed by that exact key — proof
+  of possession, not just proof the JWT exists.
+- **`api/src/routes/checkin.js`**: `POST /checkin/sessions` (staff,
+  tenant-scoped, generates a 90s single-use nonce + a real QR code image
+  via the `qrcode` package), `GET /checkin/sessions/:id` (staff polls),
+  `POST /checkin/sessions/:id/present` (public — no api JWT at all;
+  security comes entirely from the signed presentation, not from being
+  logged into HotelVerify), `POST /checkin/sessions/:id/complete` (staff,
+  flips the booking to `CHECKED_IN`).
+- **Single-use nonce enforcement via a Postgres atomic status transition**
+  (`UPDATE checkin_sessions SET status = 'VERIFIED' WHERE id = $1 AND
+  status = 'PENDING'`), the same structural pattern `room_availability`'s
+  composite PK uses for booking concurrency (Milestone 2) — not Redis, even
+  though the spec suggests Redis nonce-caching. See decisions below for why.
+- **The five replay-rejection cases (Section 9.4), tested at two layers**:
+  once in `packages/credentials` against the bare crypto functions, and
+  again in `api/test/checkin.test.js` against the real HTTP route with a
+  real session in Postgres — unknown/wrong nonce, a nonce reused for a
+  second presentation, hotelId/audience mismatch, a presentation older
+  than the 90s freshness window, and a key-binding JWT signed by the wrong
+  device key. Plus a sixth: the session itself outright expired, which is
+  a distinct failure mode from a stale presentation timestamp (a session
+  can expire with no presentation ever attempted).
+- **Offline verification with a real demo toggle** (Section 3e):
+  `api/src/services/issuerClient.js` caches the issuer's JWKS (1h TTL) and
+  revocation list (5min TTL, matching the spec) in Redis. `POST
+  /admin/network/offline` (`PLATFORM_ADMIN` only) makes it skip the live
+  fetch entirely and serve only what's cached — tested by actually warming
+  the cache, flipping the toggle, and confirming a presentation still
+  verifies with zero network calls to the issuer.
+- **Revocation checked on every presentation**, not just at issuance: a
+  credential's own `jti` claim (see the credentialId fix below) is looked
+  up against the cached revocation list; a revoked credential is rejected
+  with `credential_revoked` regardless of how cryptographically valid its
+  signature chain is.
+- **`guest_register` row created automatically on a verified presentation**,
+  using exactly the four disclosed claims the schema requires
+  (`fullName`, `idType`, `idLast4`, `nationality`) — a presentation missing
+  any of them fails with `missing_required_claims` rather than silently
+  writing a partial row.
+- **`web/` UI**: `HotelDashboardPage` grew a "Check in" action per
+  `RESERVED` booking; `StaffCheckinSessionPage` shows the live QR and polls
+  until VERIFIED, then shows exactly the disclosed claims and a "Complete
+  check-in" button; `GuestCheckinPresentPage` (reached via the QR's own
+  URL) is the actual selective-disclosure moment — four claims locked on
+  as required for the register, everything else a genuine per-claim
+  checkbox, with a line that says the plain truth: "Nothing you leave
+  unchecked is sent — the hotel never even learns that field exists."
+
+### Bugs found and fixed while building this (worth knowing for the viva)
+
+- **Credentials had no way to be checked against a revocation list at
+  all.** `issueCredential` never embedded its own future database id
+  anywhere in the JWT — there was no `jti`. A verifier receiving a
+  presentation had a cryptographically valid credential and no way to ask
+  "is this one revoked?" Fixed by generating the credential's id
+  *before* signing (in `issuer/src/pipeline/issue.js`), passing it as
+  `credentialId` into `issueCredential` (which sets it as `jti`), then
+  inserting that same id as the row's primary key instead of letting
+  Postgres generate one afterward — the JWT's claimed identity and the
+  database row's identity are now guaranteed to be the same value, decided
+  once, before either exists.
+- **`verifyCredential` trusted a caller-supplied `.value` instead of
+  deriving it from the disclosure it had just digest-checked.** Found
+  while writing this milestone's presentation tests: a `{ disclosure,
+  value }` object with a valid, correctly-hashing `.disclosure` string but
+  a *different* `.value` field was accepted, returning the forged value.
+  Not exploitable in the real system (every real caller — including the
+  new `decodePresentation` — derives `.value` by decoding `.disclosure`
+  itself, never carries a separately-supplied one), but the function's own
+  contract was looser than it needed to be. Fixed by having it decode
+  `.disclosure` itself rather than trust the caller's `.name`/`.value`
+  fields, with a test proving a mismatched `.value` is now simply ignored.
+  Found the *next* layer of the same issue immediately after:
+  `decodeDisclosure` fed attacker-controlled wire input straight into
+  `JSON.parse` with no try/catch, so a genuinely corrupted disclosure threw
+  a raw `SyntaxError` instead of the module's own `SDJWTError` — fixed with
+  validation and a wrapped error, plus tests for both a non-base64url
+  string and valid-JSON-wrong-shape input. `packages/credentials` stayed
+  at 100% coverage through both fixes.
+- **The staff check-in screen's QR code silently vanished 2 seconds after
+  appearing.** `GET /checkin/sessions/:id` (used by the staff page's poll
+  loop) never selected or returned `qrUrl`/`qrImageDataUrl` at all — only
+  the original `POST` response had them. The very first poll replaced the
+  page's whole session object with one that had no QR fields, and the
+  `<img>` silently rendered with an empty `src`. No automated test caught
+  this (none of them asserted on the *second* response in a poll
+  sequence); found by actually watching the staff screen in a browser.
+  Fixed by having `GET` regenerate the QR from the session's own stored
+  nonce/hotelId on every call — cheap, and means a staff member who
+  refreshes mid-scan doesn't lose the code either.
+- **Two of this milestone's own tests were flaky against Postgres RLS and
+  Redis caching** — an "expired session" test used a plain `pool.query`
+  for its `UPDATE`, which `checkin_sessions`' `FORCE ROW LEVEL SECURITY`
+  silently turned into a 0-row no-op instead of an error (same class of
+  mistake Milestone 2 already hit once); an "offline verification" test
+  assumed the revocation cache was already warm, when the *previous* test
+  in the same file had just deleted it as part of its own cleanup. Both
+  fixed — the first by routing the test's own `UPDATE` through
+  `withTenantTransaction` like real routes do, the second by having the
+  test perform one real online presentation first to actually warm the
+  cache before flipping offline.
+- **`room_availability`'s composite PK, which is a feature, ate this
+  milestone's own test suite on the first run**: every test in
+  `checkin.test.js` called a shared `createReservedBooking()` helper
+  against the same seeded room with a hardcoded date range, so only the
+  first call in the whole file could ever succeed — a direct, if
+  self-inflicted, demonstration of Milestone 2's own double-booking
+  guarantee working exactly as designed. Fixed with a per-call date offset.
+
+### Notable decisions worth defending in the viva
+
+- **Nonce single-use enforcement is a Postgres atomic status transition,
+  not Redis**, despite Section 9.4 explicitly suggesting Redis. Redis here
+  is used for what it's actually good at in this system — caching the
+  issuer's JWKS/revocation list to avoid a network round-trip on every
+  check-in, and enabling the offline-verification demo. `checkin_sessions`
+  already has to persist the session's state durably in Postgres regardless
+  (staff needs to poll it, `guest_register` needs to reference it); adding
+  Redis as a *second* source of truth for the same single-use guarantee
+  would mean keeping two stores consistent for no additional correctness
+  — the same reasoning that made a Postgres composite PK the right choice
+  for booking concurrency in Milestone 2, applied again here.
+- **hotelId is accepted from the client on the public `/present`
+  endpoint** — which looks like it violates Section 7's "hotel_id comes
+  from the JWT, never the client" rule, but it isn't the same situation:
+  there is no staff JWT on this endpoint at all (the caller is a guest's
+  browser, not logged into HotelVerify), so hotelId is functionally a
+  lookup key the guest already received in the QR/URL they scanned, not a
+  trust boundary a client could exploit to impersonate staff. The actual
+  security — that this presentation was made for *this* session by *this*
+  credential's own device — is enforced entirely by
+  `verifyGuestPresentation`, independent of what hotelId was supplied for
+  the lookup.
+- **The mandatory-disclosure set for check-in is `{fullName, idType,
+  idLast4, nationality}`**, not the spec's own illustrative sentence
+  (`fullName, isAdult, idType, idLast4`) — because `guest_register`'s
+  schema (Section 5) has `nationality` as `NOT NULL` and has no `isAdult`
+  column at all. Reconciled in favour of what the schema actually needs:
+  nationality is a real operational requirement (Form C, Section 8), not
+  just a demo detail; `isAdult` stays a genuine optional toggle alongside
+  `dateOfBirth`.
+
+### What was stubbed / deferred
+
+- **Guest identity at check-in isn't cross-checked against the booking's
+  own guest account.** The presented credential's `fullName` isn't
+  compared to anything on the `api`-side booking (which only has an
+  email, no name field) — issuer and api identity remain the deliberately
+  separate systems Section 4 describes. A real deployment would want some
+  binding here; noted as a gap, not silently assumed away.
+- **Nothing revokes a `checkin_session` that's simply abandoned** (guest
+  never scans, or scans and never approves) before its own 90s
+  `expires_at` — it just sits as `PENDING` until a future query happens to
+  notice it's expired. No background sweep. Low-stakes at this scale (a
+  stale session grants nothing on its own — a presentation for it still
+  has to pass every other check), but worth naming.
+- **QR codes are shown on-screen, not scanned by a real camera** — this is
+  a browser-only demo, so "scanning" is the guest's browser navigating to
+  the QR's own encoded URL. The QR image itself is real and would decode
+  correctly on an actual phone.
+
+### Next up
+
+Milestone 6 (face matching): real face-api.js embeddings, a labelled
+genuine/impostor pair set, FAR/FRR threshold sweep with a committed chart,
+and the active liveness challenge. `issuer/src/pipeline/facematch.js`'s
+current stub (`{ score: null, stub: true }`) gets replaced with the real
+thing here, not before. Not started.
+
 ## Milestone 4 — KYC pipeline (done)
 
 Deliverable per the build spec: upload → quality gate → OCR → template

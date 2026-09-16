@@ -50,11 +50,22 @@ npm run dev:web      # http://localhost:5173 (new terminal)
 `web/` is a guest booking flow (browse hotels → check availability → book →
 manage bookings), a KYC verification flow (`/kyc` → `/wallet`, using a
 synthetic ID from `fixtures/fake-ids/` after running `make-fake-ids`), a
-hotel staff dashboard (rooms + bookings for their own hotel), and an admin
-KYC review queue (`/admin/review`) — all gated by login. Self-registration
-at `/login` always creates a GUEST account; log in as
+hotel staff dashboard (rooms + bookings for their own hotel, plus a "Check
+in" action that starts a live QR check-in session), a guest check-in
+consent screen (`/checkin/present` — reached via the QR's own URL, where
+the guest picks which credential claims to share), and an admin KYC review
+queue (`/admin/review`) — all gated by login. Self-registration at
+`/login` always creates a GUEST account; log in as
 `staff.ramaiah@hotelverify.test` / `staff.mgroad@hotelverify.test` for the
 staff side, `admin@hotelverify.test` for the review queue.
+
+The check-in demo needs both a booking and a credential for the *same*
+guest login: book a room as a GUEST, run `/kyc` for that same account, then
+as staff click "Check in" on that booking. Redis must be reachable
+(`REDIS_URL`) — it caches the issuer's JWKS and revocation list for
+presentation verification (`POST /admin/network/offline` as
+`PLATFORM_ADMIN` toggles a demo "no network to the issuer" mode that still
+verifies correctly off the cache).
 
 MinIO must be reachable at `http://localhost:9000` with CORS allowing
 `http://localhost:5173` for the guest browser's direct presigned-PUT
@@ -93,9 +104,14 @@ npm run test:issuer
 
 `issuer`/`api` tests run against the `DATABASE_URL` in each service's
 `.env` — point it at a real (dev) Postgres instance with migrations
-applied; there is no mocked database. `packages/credentials` has no
-database and no service dependency at all — it's pure SD-JWT crypto over
-plain JS objects, run with plain `vitest`.
+applied; there is no mocked database. `api`'s tests also need a reachable
+Redis (`REDIS_URL`) for the issuer-JWKS/revocation cache, and `issuer`'s
+need MinIO (`S3_*`). Neither test suite talks to a real issuer/api
+service over HTTP for these, though — `api`'s tests stand up a tiny local
+HTTP server as a stand-in issuer (see `api/test/checkin.test.js`,
+`issuerReview.test.js`), keeping the suite self-contained.
+`packages/credentials` has no database and no service dependency at all —
+it's pure SD-JWT crypto over plain JS objects, run with plain `vitest`.
 
 ## Repo layout
 

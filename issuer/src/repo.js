@@ -83,12 +83,16 @@ async function listSubmissionsByStatus(status) {
   return result.rows;
 }
 
-async function insertCredential({ guestId, jwt, disclosures, docHash, expiresAt }) {
+// id is caller-provided (not the table's own gen_random_uuid() default) so
+// it can be embedded as the JWT's jti *before* this insert runs — the row
+// id and the credential's own claimed identity have to be the same value,
+// decided before either one exists yet.
+async function insertCredential({ id, guestId, jwt, disclosures, docHash, expiresAt }) {
   const result = await pool.query(
-    `INSERT INTO credentials (guest_id, jwt, disclosures_json, doc_hash, expires_at)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO credentials (id, guest_id, jwt, disclosures_json, doc_hash, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, guest_id, jwt, disclosures_json, doc_hash, issued_at, expires_at`,
-    [guestId, jwt, JSON.stringify(disclosures), docHash, expiresAt]
+    [id, guestId, jwt, JSON.stringify(disclosures), docHash, expiresAt]
   );
   return result.rows[0];
 }

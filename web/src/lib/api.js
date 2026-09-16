@@ -49,6 +49,14 @@ export const api = {
   hotelRooms: () => request("/hotel/rooms"),
   hotelBookings: () => request("/hotel/bookings"),
 
+  startCheckin: (bookingId) => request("/checkin/sessions", { method: "POST", body: { bookingId } }),
+  getCheckinSession: (sessionId) => request(`/checkin/sessions/${sessionId}`),
+  completeCheckin: (sessionId) => request(`/checkin/sessions/${sessionId}/complete`, { method: "POST" }),
+  // Public — the guest's browser isn't logged into api for this at all
+  // (Section 4); security comes from the signed presentation itself.
+  presentCheckin: (sessionId, payload) =>
+    request(`/checkin/sessions/${sessionId}/present`, { method: "POST", body: payload, auth: false }),
+
   // PLATFORM_ADMIN only — proxied through api, which attaches the
   // issuer's shared service secret itself (api/src/routes/issuerReview.js).
   issuerReviewQueue: () => request("/issuer/review"),

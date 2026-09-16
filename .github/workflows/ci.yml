@@ -23,10 +23,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://hotelverify:hotelverify@localhost:5432/hotelverify_app
       ISSUER_DATABASE_URL: postgresql://hotelverify:hotelverify@localhost:5432/hotelverify_issuer
+      REDIS_URL: redis://localhost:6379
       JWT_ACCESS_SECRET: ci_access_secret
       JWT_REFRESH_SECRET: ci_refresh_secret
       S3_ENDPOINT: http://localhost:9000
@@ -36,6 +46,7 @@ jobs:
       S3_BUCKET: hotelverify-kyc
       S3_REGION: us-east-1
       ISSUER_SERVICE_TOKEN: ci_issuer_service_token
+      WEB_BASE_URL: http://localhost:5173
 
     steps:
       - uses: actions/checkout@v4

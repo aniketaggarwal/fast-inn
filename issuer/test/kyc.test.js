@@ -77,6 +77,12 @@ describe("POST /kyc/submit — auto-pass path", () => {
       expect.arrayContaining(["fullName", "dateOfBirth", "isAdult", "nationality", "idType", "idLast4", "idDocHash", "verifiedAt"])
     );
 
+    // A verifier (Milestone 5) identifies which DB row a JWT corresponds
+    // to via its jti — must match the credential's own id, not just be
+    // present.
+    const payload = JSON.parse(Buffer.from(submit.body.credential.jwt.split(".")[1], "base64url").toString());
+    expect(payload.jti).toBe(submit.body.credential.id);
+
     // The "S3 object is gone afterwards" done-when criterion, checked
     // directly against storage rather than trusting the API's word for it.
     expect(await s3.objectExists(docKey)).toBe(false);

@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { issueCredential } = require("credentials");
 const { getActiveKeyPair } = require("../keys");
 const { buildClaims } = require("./claims");
@@ -18,6 +19,13 @@ async function issueCredentialForSubmission({ submission, values, docHash, holde
   const claims = await buildClaims({ values, docType: submission.doc_type, docHash, selfieBuffer });
   const { publicKeyJwk, privateKeyJwk, kid } = getActiveKeyPair();
 
+  // Generated up front so it can be embedded as the JWT's own jti before
+  // signing, and then inserted as that same row's id afterward — without
+  // this, a verifier has no way to know which credentials-table row a
+  // given JWT corresponds to, and so no way to check it against
+  // /revocations (Section 3d).
+  const credentialId = crypto.randomUUID();
+
   const issued = await issueCredential({
     claims,
     issuerPrivateKeyJwk: privateKeyJwk,
@@ -26,10 +34,12 @@ async function issueCredentialForSubmission({ submission, values, docHash, holde
     subject: submission.guest_id,
     holderPublicKeyJwk,
     expiresInSeconds: CREDENTIAL_TTL_SECONDS,
+    credentialId,
   });
 
   const expiresAt = new Date(Date.now() + CREDENTIAL_TTL_SECONDS * 1000);
   const credential = await repo.insertCredential({
+    id: credentialId,
     guestId: submission.guest_id,
     jwt: issued.jwt,
     disclosures: issued.disclosures,

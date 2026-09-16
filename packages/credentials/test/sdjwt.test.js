@@ -49,6 +49,20 @@ describe("issueCredential + verifyCredential round trip", () => {
     expect(payload.sub).toBe("guest-123");
   });
 
+  it("embeds credentialId as jti when provided, for a verifier to check against a revocation list", async () => {
+    const { jwt, disclosures, publicKeyJwk } = await issueTestCredential({
+      credentialId: "cred-abc-123",
+    });
+    const { payload } = await verifyCredential({ jwt, disclosures, issuerPublicKeyJwk: publicKeyJwk });
+    expect(payload.jti).toBe("cred-abc-123");
+  });
+
+  it("has no jti at all when credentialId isn't provided", async () => {
+    const { jwt, disclosures, publicKeyJwk } = await issueTestCredential();
+    const { payload } = await verifyCredential({ jwt, disclosures, issuerPublicKeyJwk: publicKeyJwk });
+    expect(payload.jti).toBeUndefined();
+  });
+
   it("demonstrates data minimisation: a partial disclosure reveals only the selected claims", async () => {
     const { jwt, disclosures, publicKeyJwk } = await issueTestCredential();
 
@@ -293,6 +307,15 @@ describe("disclosure primitives", () => {
     expect(decoded.salt).toBe(made.salt);
     expect(decoded.name).toBe("nationality");
     expect(decoded.value).toBe("IN");
+  });
+
+  it("decodeDisclosure rejects a string that isn't valid base64url(JSON) at all", () => {
+    expect(() => decodeDisclosure("not-valid-base64url-json!!!")).toThrow(/malformed_disclosure/);
+  });
+
+  it("decodeDisclosure rejects valid JSON that isn't a 3-element [salt, name, value] array", () => {
+    const wrongShape = Buffer.from(JSON.stringify({ not: "a triple" })).toString("base64url");
+    expect(() => decodeDisclosure(wrongShape)).toThrow(/malformed_disclosure/);
   });
 
   it("digestDisclosure is deterministic for the same input", () => {

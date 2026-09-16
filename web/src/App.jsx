@@ -11,6 +11,8 @@ import { HotelDashboardPage } from "./pages/HotelDashboardPage";
 import { GuestKycPage } from "./pages/GuestKycPage";
 import { GuestWalletPage } from "./pages/GuestWalletPage";
 import { AdminReviewPage } from "./pages/AdminReviewPage";
+import { StaffCheckinSessionPage } from "./pages/StaffCheckinSessionPage";
+import { GuestCheckinPresentPage } from "./pages/GuestCheckinPresentPage";
 
 export default function App() {
   return (
@@ -74,6 +76,22 @@ export default function App() {
               element={
                 <ProtectedRoute roles={["PLATFORM_ADMIN"]}>
                   <AdminReviewPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkin/session/:sessionId"
+              element={
+                <ProtectedRoute roles={["HOTEL_STAFF", "HOTEL_ADMIN"]}>
+                  <StaffCheckinSessionPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkin/present"
+              element={
+                <ProtectedRoute roles={["GUEST"]}>
+                  <GuestCheckinPresentPage />
                 </ProtectedRoute>
               }
             />
