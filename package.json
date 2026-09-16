@@ -14,6 +14,7 @@
   },
   "scripts": {
     "seed": "node scripts/seed.js",
+    "make-fake-ids": "node scripts/make-fake-ids.js",
     "migrate:issuer": "npm run migrate --workspace=issuer",
     "migrate:api": "npm run migrate --workspace=api",
     "migrate": "npm run migrate:issuer && npm run migrate:api",
@@ -39,6 +40,8 @@
   "allowScripts": {
     "argon2@0.31.2": true,
     "esbuild@0.21.5": true,
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "sharp@0.33.5": true,
+    "tesseract.js@5.1.1": true
   }
 }

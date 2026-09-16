@@ -8,6 +8,9 @@ import { GuestHotelsPage } from "./pages/GuestHotelsPage";
 import { GuestHotelDetailPage } from "./pages/GuestHotelDetailPage";
 import { GuestBookingsPage } from "./pages/GuestBookingsPage";
 import { HotelDashboardPage } from "./pages/HotelDashboardPage";
+import { GuestKycPage } from "./pages/GuestKycPage";
+import { GuestWalletPage } from "./pages/GuestWalletPage";
+import { AdminReviewPage } from "./pages/AdminReviewPage";
 
 export default function App() {
   return (
@@ -43,10 +46,34 @@ export default function App() {
               }
             />
             <Route
+              path="/kyc"
+              element={
+                <ProtectedRoute roles={["GUEST"]}>
+                  <GuestKycPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/wallet"
+              element={
+                <ProtectedRoute roles={["GUEST"]}>
+                  <GuestWalletPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/dashboard"
               element={
                 <ProtectedRoute roles={["HOTEL_STAFF", "HOTEL_ADMIN"]}>
                   <HotelDashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/review"
+              element={
+                <ProtectedRoute roles={["PLATFORM_ADMIN"]}>
+                  <AdminReviewPage />
                 </ProtectedRoute>
               }
             />

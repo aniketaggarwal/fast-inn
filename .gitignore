@@ -9,3 +9,5 @@ coverage/
 .DS_Store
 issuer/keys/
 *.pem
+fixtures/
+*.traineddata

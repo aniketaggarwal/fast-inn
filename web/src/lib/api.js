@@ -1,17 +1,18 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
+const ISSUER_BASE = import.meta.env.VITE_ISSUER_BASE || "http://localhost:4001";
 
 function getToken() {
   return localStorage.getItem("accessToken");
 }
 
-async function request(path, { method = "GET", body, auth = true } = {}) {
+async function baseRequest(base, path, { method = "GET", body, auth = true } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (auth) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -26,6 +27,11 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
   }
   return data;
 }
+
+const request = (path, opts) => baseRequest(API_BASE, path, opts);
+// The guest app talks to the issuer directly for KYC — no api-issued JWT
+// is involved on this path at all (Section 4 architecture diagram).
+const issuerRequest = (path, opts) => baseRequest(ISSUER_BASE, path, { ...opts, auth: false });
 
 export const api = {
   register: (email, password) => request("/auth/register", { method: "POST", body: { email, password }, auth: false }),
@@ -42,4 +48,24 @@ export const api = {
 
   hotelRooms: () => request("/hotel/rooms"),
   hotelBookings: () => request("/hotel/bookings"),
+
+  // PLATFORM_ADMIN only — proxied through api, which attaches the
+  // issuer's shared service secret itself (api/src/routes/issuerReview.js).
+  issuerReviewQueue: () => request("/issuer/review"),
+  issuerDecide: (submissionId, payload) =>
+    request(`/issuer/review/${submissionId}/decide`, { method: "POST", body: payload }),
+  issuerRevoke: (credentialId, reason) =>
+    request(`/issuer/admin/revoke/${credentialId}`, { method: "POST", body: { reason } }),
+
+  // Guest-facing KYC — direct to the issuer, no api auth token.
+  kycPresign: (docType) => issuerRequest("/kyc/uploads/presign", { method: "POST", body: { docType } }),
+  kycSubmit: (payload) => issuerRequest("/kyc/submit", { method: "POST", body: payload }),
+  kycStatus: (submissionId) => issuerRequest(`/kyc/${submissionId}/status`),
+
+  async uploadToPresignedUrl(url, blob) {
+    const res = await fetch(url, { method: "PUT", headers: { "Content-Type": blob.type || "image/png" }, body: blob });
+    if (!res.ok) {
+      throw new Error(`upload_failed_${res.status}`);
+    }
+  },
 };

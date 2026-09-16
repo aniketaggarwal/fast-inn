@@ -25,11 +25,22 @@ export function NavBar() {
               <Link to="/bookings" className="text-slate-600 hover:text-slate-900">
                 My bookings
               </Link>
+              <Link to="/kyc" className="text-slate-600 hover:text-slate-900">
+                Verify identity
+              </Link>
+              <Link to="/wallet" className="text-slate-600 hover:text-slate-900">
+                Wallet
+              </Link>
             </>
           )}
           {(user?.role === "HOTEL_STAFF" || user?.role === "HOTEL_ADMIN") && (
             <Link to="/dashboard" className="text-slate-600 hover:text-slate-900">
               Dashboard
+            </Link>
+          )}
+          {user?.role === "PLATFORM_ADMIN" && (
+            <Link to="/admin/review" className="text-slate-600 hover:text-slate-900">
+              KYC review
             </Link>
           )}
           {user ? (

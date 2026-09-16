@@ -29,6 +29,13 @@ jobs:
       ISSUER_DATABASE_URL: postgresql://hotelverify:hotelverify@localhost:5432/hotelverify_issuer
       JWT_ACCESS_SECRET: ci_access_secret
       JWT_REFRESH_SECRET: ci_refresh_secret
+      S3_ENDPOINT: http://localhost:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY: hotelverify
+      S3_SECRET_KEY: hotelverify_dev_only
+      S3_BUCKET: hotelverify-kyc
+      S3_REGION: us-east-1
+      ISSUER_SERVICE_TOKEN: ci_issuer_service_token
 
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +47,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # GitHub Actions' `services:` block has no way to override a
+      # container's command, and minio/minio needs `server /data` passed
+      # explicitly — so it's started as a plain background container
+      # instead of a declarative service.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=hotelverify \
+            -e MINIO_ROOT_PASSWORD=hotelverify_dev_only \
+            minio/minio server /data
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 1
+          done
 
       - name: Create issuer database
         run: psql "postgresql://hotelverify:hotelverify@localhost:5432/postgres" -c "CREATE DATABASE hotelverify_issuer"

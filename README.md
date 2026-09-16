@@ -40,16 +40,28 @@ docker compose up -d postgres redis minio
 npm install
 npm run migrate
 npm run seed
+npm run make-fake-ids     # synthetic ID cards for testing KYC — fixtures/, gitignored
+npm run keygen --workspace=issuer   # optional; issuer auto-generates on first boot otherwise
 npm run dev:api      # http://localhost:4000
 npm run dev:issuer   # http://localhost:4001 (new terminal)
 npm run dev:web      # http://localhost:5173 (new terminal)
 ```
 
 `web/` is a guest booking flow (browse hotels → check availability → book →
-manage bookings) and a hotel staff dashboard (rooms + bookings for their own
-hotel), gated by login. Self-registration at `/login` always creates a
-GUEST account; log in as `staff.ramaiah@hotelverify.test` /
-`staff.mgroad@hotelverify.test` to see the staff side.
+manage bookings), a KYC verification flow (`/kyc` → `/wallet`, using a
+synthetic ID from `fixtures/fake-ids/` after running `make-fake-ids`), a
+hotel staff dashboard (rooms + bookings for their own hotel), and an admin
+KYC review queue (`/admin/review`) — all gated by login. Self-registration
+at `/login` always creates a GUEST account; log in as
+`staff.ramaiah@hotelverify.test` / `staff.mgroad@hotelverify.test` for the
+staff side, `admin@hotelverify.test` for the review queue.
+
+MinIO must be reachable at `http://localhost:9000` with CORS allowing
+`http://localhost:5173` for the guest browser's direct presigned-PUT
+uploads to work — `docker-compose.yml` sets `MINIO_API_CORS_ALLOW_ORIGIN`
+for this already. Running MinIO outside Docker (e.g. via `brew install
+minio`), start it with `MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:5173`
+in the environment.
 
 Seeded accounts (password for all: `Password123!`):
 
@@ -89,9 +101,10 @@ plain JS objects, run with plain `vitest`.
 
 See [HOTELVERIFY_BUILD_SPEC.md § Repo layout](HOTELVERIFY_BUILD_SPEC.md#repo-layout-monorepo-npm-workspaces)
 for the target structure across all 8 milestones. `packages/credentials/`,
-`issuer/`, `api/`, `web/`, and `scripts/` exist so far — `guest-app/` (the
-dedicated wallet/consent PWA) lands once there's a real KYC flow to build a
-wallet around, Milestone 4+.
+`issuer/`, `api/`, `web/`, and `scripts/` exist so far — `guest-app/` (a
+dedicated, PWA-installable wallet app, as opposed to the KYC/wallet pages
+folded into `web/` for now) is deferred; nothing about the current design
+blocks splitting it out later.
 
 ## Testing coverage philosophy
 
