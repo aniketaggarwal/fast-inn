@@ -1,5 +1,39 @@
 # PROGRESS
 
+## Milestone 6 follow-up — KYC/review UI polish pass (done)
+
+Before starting Milestone 7, went back over the guest KYC flow and the
+admin review screen for usability, since Milestone 6 shipped them
+functionally correct but visually bare. Verified for real in the browser
+(not just a visual read of the JSX) — re-ran both the auto-pass and the
+duplicate-document-review paths through the actual rendered UI.
+
+- **`LivenessCapture.jsx` reworked**: the camera preview is now mirrored
+  (`-scale-x-100`) so it feels like a normal selfie camera — the *captured
+  frame itself* is deliberately left unmirrored, since that's what
+  actually gets compared against the ID photo and a real selfie/ID
+  comparison shouldn't be flipped. Added a 3-second countdown before
+  capture starts (time to react to the prompt), a 6-frame progress bar
+  during capture (was silent "Capturing…" text before), specific
+  `NotAllowedError`/`NotFoundError`/timeout messages instead of a raw
+  `err.message` dump, and a "done" state showing the actual captured
+  thumbnail with a "Retake" option instead of just a checkmark and text.
+- **`GuestKycPage.jsx`**: added a 3-step progress indicator (Document →
+  Selfie → Consent) that fills in as each part is completed, and replaced
+  both bare `<input type=file>` elements with a dropzone-style picker that
+  shows a thumbnail preview and filename instead of the browser's blunt
+  "No file chosen" text.
+- **`AdminReviewPage.jsx`**: the face-match line is now a colour-coded
+  badge (green ≥0.4 / amber ≥0.25 / red below, or a specific red badge for
+  `no_face`/`multiple_faces` — kept in sync with `FACE_MATCH_THRESHOLD`
+  via a comment) instead of a line of plain text a reviewer had to parse.
+  Both images are click-to-zoom into a full-screen lightbox — reviewing a
+  face match from two 200px thumbnails wasn't practical. Reject now asks
+  for confirmation inline in the app's own styling instead of
+  `window.confirm()`, which (found by actually testing it) auto-dismisses
+  silently in an automated/embedded browser context and is a jarring,
+  inconsistent look next to everything else on the page regardless.
+
 ## Milestone 6 — Face matching, FAR/FRR study, liveness challenge (done)
 
 Deliverable per the build spec: real face matching replacing the

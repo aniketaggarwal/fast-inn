@@ -7,8 +7,9 @@ import { api } from "../lib/api";
 // prompt still matters: it's what gets a live person to move at all,
 // which is the thing being checked.
 const PROMPTS = ["Blink twice", "Turn your head left, then right", "Smile", "Nod your head"];
-const FRAME_COUNT = 4;
-const FRAME_INTERVAL_MS = 400;
+const FRAME_COUNT = 6;
+const FRAME_INTERVAL_MS = 450;
+const COUNTDOWN_SECONDS = 3;
 
 const FAILURE_MESSAGES = {
   face_not_detected: "We couldn't see a face clearly in every frame — make sure your face is centered and well-lit.",
@@ -18,15 +19,17 @@ const FAILURE_MESSAGES = {
   too_many_frames: "Something went wrong with the capture — please try again.",
 };
 
-// Live camera capture + Section 9.3's liveness challenge. Requires real
-// camera access, so it only runs where that's available; GuestKycPage
-// falls back to a plain file upload when it isn't (see its own comment).
+// idle -> starting -> ready -> counting down -> capturing -> checking -> done
+//                        ^______________________________________|  (on failure, back to ready)
 export function LivenessCapture({ onCaptured }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [prompt] = useState(() => PROMPTS[Math.floor(Math.random() * PROMPTS.length)]);
-  const [status, setStatus] = useState("idle"); // idle | starting | ready | capturing | checking | failed
+  const [status, setStatus] = useState("idle");
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [frameProgress, setFrameProgress] = useState(0);
   const [error, setError] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   useEffect(() => {
     return () => {
@@ -53,14 +56,33 @@ export function LivenessCapture({ onCaptured }) {
       }
       setStatus("ready");
     } catch (err) {
-      setError(`Camera access failed: ${err.message}`);
+      setError(cameraErrorMessage(err));
       setStatus("idle");
     }
   };
 
+  const beginCountdown = () => {
+    setError(null);
+    setStatus("counting");
+    setCountdown(COUNTDOWN_SECONDS);
+  };
+
+  // Ticks the on-screen countdown once a second, then hands off to the
+  // actual frame capture — kept as its own effect so the countdown number
+  // reliably repaints between ticks instead of racing a single async loop.
+  useEffect(() => {
+    if (status !== "counting") return;
+    if (countdown <= 0) {
+      captureAndCheck();
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [status, countdown]);
+
   const captureAndCheck = async () => {
     setStatus("capturing");
-    setError(null);
+    setFrameProgress(0);
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 320;
@@ -71,6 +93,7 @@ export function LivenessCapture({ onCaptured }) {
     for (let i = 0; i < FRAME_COUNT; i++) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       frames.push(canvas.toDataURL("image/jpeg", 0.85));
+      setFrameProgress(i + 1);
       if (i < FRAME_COUNT - 1) await new Promise((r) => setTimeout(r, FRAME_INTERVAL_MS));
     }
 
@@ -79,7 +102,10 @@ export function LivenessCapture({ onCaptured }) {
       const result = await api.kycLivenessCheck(frames);
       if (result.passed) {
         streamRef.current?.getTracks().forEach((t) => t.stop());
-        const blob = await (await fetch(frames[frames.length - 1])).blob();
+        const lastFrame = frames[frames.length - 1];
+        const blob = await (await fetch(lastFrame)).blob();
+        setPreviewUrl(lastFrame);
+        setStatus("done");
         onCaptured(new File([blob], "selfie.jpg", { type: "image/jpeg" }));
       } else {
         setStatus("ready");
@@ -91,8 +117,32 @@ export function LivenessCapture({ onCaptured }) {
     }
   };
 
+  const retake = () => {
+    setPreviewUrl(null);
+    setError(null);
+    startCamera();
+  };
+
+  if (status === "done") {
+    return (
+      <div className="rounded-lg border border-green-300 bg-green-50 p-3">
+        <div className="flex items-center gap-3">
+          {previewUrl && (
+            <img src={previewUrl} alt="Captured selfie" className="h-16 w-16 rounded-full border border-green-300 object-cover" />
+          )}
+          <div>
+            <p className="text-sm font-medium text-green-800">Live selfie captured</p>
+            <button type="button" onClick={retake} className="text-xs text-green-700 underline">
+              Retake
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded border border-slate-300 p-3">
+    <div className="rounded-lg border border-slate-300 p-3">
       {status === "idle" && (
         <button
           type="button"
@@ -103,30 +153,90 @@ export function LivenessCapture({ onCaptured }) {
         </button>
       )}
 
-      {status !== "idle" && (
+      {status === "starting" && (
+        <div className="flex items-center justify-center gap-2 rounded bg-slate-100 py-6 text-sm text-slate-500">
+          <Spinner /> Requesting camera access…
+        </div>
+      )}
+
+      {status !== "idle" && status !== "starting" && (
         <div>
-          <video ref={videoRef} muted playsInline className="w-full rounded bg-black" />
-          {(status === "ready" || status === "capturing" || status === "checking") && (
-            <p className="mt-2 text-center text-sm font-medium text-slate-700">Prompt: {prompt}</p>
+          <div className="relative overflow-hidden rounded bg-black">
+            <video ref={videoRef} muted playsInline className="w-full -scale-x-100 transform" />
+
+            {status === "counting" && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <span className="text-6xl font-bold text-white drop-shadow">{countdown}</span>
+              </div>
+            )}
+
+            {(status === "capturing" || status === "checking") && (
+              <div className="absolute inset-x-0 bottom-0 bg-black/50 px-3 py-2">
+                <div className="flex gap-1">
+                  {Array.from({ length: FRAME_COUNT }).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`h-1.5 flex-1 rounded-full ${i < frameProgress ? "bg-white" : "bg-white/30"}`}
+                    />
+                  ))}
+                </div>
+                <p className="mt-1 text-center text-xs text-white">
+                  {status === "capturing" ? "Capturing…" : "Checking…"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {(status === "ready" || status === "counting" || status === "capturing") && (
+            <p className="mt-2 rounded bg-slate-100 py-1.5 text-center text-sm font-medium text-slate-700">
+              {prompt}
+            </p>
           )}
+
           {status === "ready" && (
             <button
               type="button"
-              onClick={captureAndCheck}
+              onClick={beginCountdown}
               className="mt-2 w-full rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
             >
               Capture
             </button>
           )}
-          {(status === "capturing" || status === "checking") && (
-            <p className="mt-2 text-center text-sm text-slate-500">
-              {status === "capturing" ? "Capturing…" : "Checking…"}
-            </p>
+
+          {status === "checking" && (
+            <div className="mt-2 flex items-center justify-center gap-2 text-sm text-slate-500">
+              <Spinner /> Checking…
+            </div>
           )}
         </div>
       )}
 
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && (
+        <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+          {error}
+          {status === "idle" && (
+            <button type="button" onClick={startCamera} className="ml-2 font-medium underline">
+              Try again
+            </button>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function cameraErrorMessage(err) {
+  if (err.name === "NotAllowedError") return "Camera access was denied — allow camera access, or upload a photo instead.";
+  if (err.name === "NotFoundError") return "No camera was found on this device — upload a photo instead.";
+  if (err.message?.includes("timed out")) return "Camera access timed out — allow camera access, or upload a photo instead.";
+  return `Camera access failed: ${err.message}`;
+}
+
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin text-slate-500" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
   );
 }
