@@ -1,5 +1,203 @@
 # PROGRESS
 
+## Milestone 7 — Compliance (done)
+
+Deliverable per the build spec: guest register view + Form C export,
+DPDP-aligned consent ledger with a guest-facing "my data" screen, a
+retention purge job, an append-only audit log with an admin viewer, and a
+revocation admin panel. Done-when: "Revoke a credential → next check-in
+fails with a clear reason." Verified for real, end to end, through the
+actual browser UI, not just the 75 automated api tests this milestone
+brought the suite to (48 credentials + 75 api + 58 issuer = 181 total
+across the monorepo): booked a room as a guest, ran KYC, staff checked
+them in (consent + audit rows written automatically), staff checked them
+out (register got a departure timestamp), the guest withdrew their
+consent from `/my-data`, a platform admin revoked the credential from
+`/admin/panel`, and — the actual done-when — a **second** check-in
+attempt with that same credential failed with `credential_revoked`
+displayed directly on the guest's own consent screen.
+
+### What works
+
+- **Guest register + Form C** (`GET /hotel/register`,
+  `GET /hotel/exports/form-c.csv`, `HotelRegisterPage.jsx`): auto-populated
+  from verified check-ins, `idLast4` only — there's no column in the schema
+  to leak a full ID number even by mistake. Non-Indian nationals get a
+  `form_c_records` row on check-in and a "Form C" badge on the register;
+  the CSV export stamps `exported_at` on every row it returns.
+- **DPDP consent capture, written where the disclosure actually happens**:
+  `api/src/routes/checkin.js`'s `/present` handler now writes a `consents`
+  row (`claims_disclosed_json` taken from `Object.keys(verification.claims)`
+  — whatever the guest actually disclosed, not a fixed list) in the same
+  transaction as the `guest_register` insert, plus a `checkin_verified`
+  audit_log entry.
+- **Guest-facing "my data" screen** (`GET /consents/mine`,
+  `POST /consents/:id/withdraw`, `DELETE /account`,
+  `GuestMyDataPage.jsx`): shows claim *names* shared with each hotel, when,
+  and for what purpose — never the disclosed values themselves, so this
+  page isn't itself another place the guest's PII sits around. Withdrawing
+  consent can't undo a disclosure that's already part of a hotel's
+  statutory register, but it does two real things: records the withdrawal
+  event, and immediately nulls that booking's
+  `checkin_sessions.verified_claims_json` rather than waiting for the
+  nightly retention job.
+- **Account deletion balances DPDP erasure against statutory retention**:
+  `DELETE /account` anonymizes the `users` row (email replaced, password
+  hash cleared, `deleted_at` stamped) instead of a hard `DELETE`, because a
+  real delete would `CASCADE` through `bookings` into `guest_register` and
+  destroy records hotels are legally required to keep. Login is blocked
+  immediately (`auth.js`'s login/refresh queries now filter
+  `deleted_at IS NULL`); the freed-up email can be re-registered fresh.
+- **Retention purge job** (`scripts/purge-retention.js`,
+  `npm run purge-retention`, default 90 days via `RETENTION_DAYS`): nulls
+  `checkin_sessions.verified_claims_json` for bookings checked out more
+  than N days ago. Selfies/ID documents don't need a separate purge step
+  here — they're already deleted from storage immediately at credential
+  issuance (Milestone 4), stricter than the 90-day allowance. Manually
+  verified against a real backdated fixture row (not just read by eye):
+  ran the script, confirmed exactly 1 row purged, confirmed a second run
+  purges 0 (idempotent), confirmed the `retention_purge` audit_log entry.
+- **A checkout action that didn't exist before this milestone**
+  (`POST /hotel/bookings/:id/checkout`) — nothing in Milestones 1-6 ever
+  moved a booking past `CHECKED_IN`, but the retention job's "N days after
+  checkout" needs a real timestamp to anchor on. Stamps
+  `guest_register.departure_at` too.
+- **Admin panel** (`GET /admin/hotels`, `GET /admin/audit`,
+  `GET /admin/register`, `AdminPanelPage.jsx`): three tabs — hotels,
+  the append-only audit log, and a cross-hotel register view with a
+  revoke-credential action (reusing the `POST /issuer/admin/revoke/:credId`
+  proxy that already existed from Milestone 5 but had no UI in front of
+  it until now). Revocation is mirrored into api's own `audit_log`
+  (`credential_revoked`) alongside the issuer's own `issuer_audit`, so a
+  platform admin reviewing one screen sees revocations next to check-ins
+  and account deletions instead of needing to check two systems.
+
+### Bugs found and fixed while building this (worth knowing for the viva)
+
+- **`GET /admin/register` returned zero rows for every hotel, silently.**
+  `guest_register` has `FORCE ROW LEVEL SECURITY` (Section 7); its policy
+  only recognizes a single tenant's `app.hotel_id`, with no branch that
+  authorizes "read across every hotel." A `PLATFORM_ADMIN` route querying
+  it directly isn't a bypass of RLS, it's just... blocked, exactly the
+  same as any other unscoped query, and the query doesn't error — it just
+  quietly returns nothing, which looks identical to "no data yet" instead
+  of "wrong access pattern." Caught by this milestone's own
+  `compliance.test.js` test ("reads across hotels") failing with an empty
+  result, not by reading the code. Fixed properly, not by connecting as a
+  different role: added an explicit `app.platform_admin` branch to *all
+  four* RLS-protected tables' policies (`1735300000000_compliance`
+  migration) and a `withPlatformAdminTransaction` helper
+  (`api/src/db.js`) that's the only thing allowed to set that GUC — the
+  same shape of fix as the guest_id branch bookings already got in
+  Milestone 2, generalized to a third kind of session, not a new pattern.
+- **The retention purge script "succeeded" at purging nothing**, for the
+  identical reason — its own bare `Pool` connection had no GUC set at
+  all, so both the `guest_register` subquery and the `checkin_sessions`
+  update RLS-filtered to zero rows, and it printed
+  "cleared verified_claims_json on 0 check-in session(s)" as if that were
+  a legitimate, unremarkable result. Found by actually creating a
+  backdated fixture row and running the script against it rather than
+  trusting a clean exit code — the same discipline that's caught every
+  RLS surprise since Milestone 2. Fixed with the same
+  `withPlatformAdminTransaction`-shaped bypass, just from a script instead
+  of a route.
+- **My own first draft of the `1735300000000` migration regressed an
+  already-fixed bug**: it rewrote `consents`' RLS policy to add the
+  guest-branch, but used the pre-`NULLIF`-fix form
+  (`current_setting(...)::uuid = hotel_id`) instead of the
+  `NULLIF(current_setting(...), '')::uuid` form
+  `1735200000000_rls-nullif-empty-guc` had already established for every
+  other table — silently reintroducing the "empty string GUC on a reused
+  pooled connection throws 22P02" bug for that one table. Caught before
+  commit by re-reading the migration history before writing a new
+  cross-cutting RLS change, not by a test (this specific regression
+  never got exercised by the connection-reuse pattern that originally
+  surfaced it). Rewritten to match the established NULLIF form and
+  extended consistently to all four tables in one migration instead of
+  patching just the one this milestone happened to touch.
+- **Several new tests' own fixture setup hit the exact same RLS wall**
+  as the app code above (`new row violates row-level security policy`,
+  or a false-positive-shaped 0-rows-back) — inserting/reading
+  `bookings`/`guest_register`/`consents` fixture rows via a plain
+  `pool.query()` instead of the `withTenantTransaction`/
+  `withGuestTransaction` helper a real request would use. Not a
+  coincidence: it's the same lesson Milestone 5's PROGRESS.md already
+  drew from an expired-session test ("a bare `pool.query` for its UPDATE,
+  silently no-op'd by FORCE ROW LEVEL SECURITY") — re-learned here across
+  several call sites in one milestone because the new compliance
+  tables are RLS-protected the same way, and a couple of assertions
+  (`expect(formC.rowCount).toBe(0)`) were false positives that would have
+  passed whether or not the feature worked, which is a worse failure mode
+  than an outright crash.
+- **`issuerReview.test.js`'s revoke test 500'd** after this milestone
+  added an api-side `audit_log` mirror of `credential_revoked` —
+  `audit_log.entity_id` is a `uuid` column and the test's fake credential
+  id (`"cred-1"`) isn't UUID-shaped. Fixed two ways: gave the test a
+  realistic UUID-shaped fixture id, *and* wrapped the audit write itself
+  in a try/catch-log rather than letting it throw — the revoke had
+  already succeeded upstream by that point, so a logging hiccup
+  shouldn't turn a successful revoke into a 500 for the caller. Same
+  "log, don't throw" pattern Milestone 4's `deleteSubmissionDocuments`
+  already established for non-critical side effects.
+
+### Notable decisions worth defending in the viva
+
+- **RLS's `platform_admin` branch is a session-scoped Postgres GUC that
+  only `withPlatformAdminTransaction` ever sets** — never something a
+  client request can influence, the same trust boundary as
+  `app.hotel_id` coming only from a verified JWT (Section 7) and never
+  from request input. A route bug that forgets to check `req.user.role
+  === "PLATFORM_ADMIN"` before calling it is still a real bug, but it
+  can't be triggered by anything in a request body or query string.
+- **Account deletion anonymizes rather than deletes**, and this is
+  presented as the actual designed behavior in the UI copy, not hidden —
+  `GuestMyDataPage.jsx` says outright that statutory register entries
+  aren't touched. This is the single most defensible-in-the-viva design
+  tension in this milestone: DPDP's erasure right and India's hotel
+  guest-register retention law point in opposite directions for the same
+  data, and the honest answer is neither "silently keep everything" nor
+  "silently delete records the hotel is legally required to have" — it's
+  scoping erasure to exactly the account/login layer and saying so.
+- **Form C's `visa_type`/`arrival_from` fields are left null, always** —
+  the credential schema has no claim for either, and fabricating a value
+  for a government filing field this system genuinely doesn't collect
+  would be worse than an honest gap. Documented in the route's own
+  comment, not just here.
+- **The retention job purges `verified_claims_json`, not selfies/ID
+  images**, because there's nothing left to purge there — Milestone 4's
+  own design already deletes the raw document/selfie from storage
+  immediately at credential issuance, well inside the 90-day default this
+  job enforces for the one thing that *does* linger.
+- Per Section 8's own instruction: statutory requirements (guest
+  registers, Form C, DPDP alignment) vary by state and change over time;
+  this implementation is illustrative for an academic project and has
+  not been legally reviewed. See the README for the same disclaimer in
+  context.
+
+### What was stubbed/deferred
+
+- `audit_log` grants: Section 5 asks for the app's DB role to have
+  `INSERT`/`SELECT` only on `audit_log`, enforced at the database level so
+  even a compromised app can't tamper with the trail. This dev setup
+  still connects as the table owner (noted as a gap since Milestone 1's
+  own migration comment); a real deployment would create a dedicated
+  non-owner role for this.
+- No cron/systemd timer actually runs `purge-retention.js` on a schedule
+  in this dev setup — it's a script, run by hand or wired into a real
+  deployment's crontab, per its own file comment.
+- The admin panel's revoke button doesn't track "already revoked" state
+  client-side (no visual change after a successful revoke besides the new
+  audit_log entry) — a small UI gap, not a functional one; the revoke
+  itself is real and immediately effective, as the browser verification
+  above confirms.
+
+### Next up
+
+Milestone 8 (hardening + demo): rate limits, error states, empty states,
+a seeded demo dataset, a Playwright happy-path test, README polish, an
+architecture diagram, a deployed URL. Done-when per the spec: a cold
+`git clone` → `docker compose up` → `npm run seed` gives a working demo.
+
 ## Milestone 6 follow-up — KYC/review UI polish pass (done)
 
 Before starting Milestone 7, went back over the guest KYC flow and the

@@ -53,7 +53,7 @@ router.post("/auth/login", asyncHandler(async (req, res) => {
   }
 
   const result = await pool.query(
-    "SELECT id, email, password_hash, role, hotel_id FROM users WHERE email = $1",
+    "SELECT id, email, password_hash, role, hotel_id FROM users WHERE email = $1 AND deleted_at IS NULL",
     [email.trim().toLowerCase()]
   );
   const user = result.rows[0];
@@ -80,7 +80,7 @@ router.post("/auth/refresh", asyncHandler(async (req, res) => {
     return res.status(401).json({ error: "invalid_refresh_token" });
   }
 
-  const result = await pool.query("SELECT id, email, role, hotel_id FROM users WHERE id = $1", [payload.sub]);
+  const result = await pool.query("SELECT id, email, role, hotel_id FROM users WHERE id = $1 AND deleted_at IS NULL", [payload.sub]);
   const user = result.rows[0];
   if (!user) {
     return res.status(401).json({ error: "invalid_refresh_token" });

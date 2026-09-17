@@ -43,7 +43,7 @@ function startFakeIssuer() {
         }
         if (req.method === "POST" && /^\/admin\/revoke\/.+$/.test(req.url)) {
           res.statusCode = 200;
-          return res.end(JSON.stringify({ id: "cred-1", revokedAt: "2026-01-01T00:00:00.000Z" }));
+          return res.end(JSON.stringify({ id: "11111111-1111-1111-1111-111111111111", revokedAt: "2026-01-01T00:00:00.000Z" }));
         }
         res.statusCode = 404;
         res.end(JSON.stringify({ error: "not_found" }));
@@ -124,21 +124,21 @@ describe("POST /issuer/review/:id/decide", () => {
 describe("POST /issuer/admin/revoke/:credId", () => {
   it("attaches the calling admin's user id as actorId and relays the issuer's response", async () => {
     const res = await request(app)
-      .post("/issuer/admin/revoke/cred-1")
+      .post("/issuer/admin/revoke/11111111-1111-1111-1111-111111111111")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ reason: "lost device" });
 
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe("cred-1");
+    expect(res.body.id).toBe("11111111-1111-1111-1111-111111111111");
 
-    const forwarded = receivedRequests.find((r) => r.url === "/admin/revoke/cred-1");
+    const forwarded = receivedRequests.find((r) => r.url === "/admin/revoke/11111111-1111-1111-1111-111111111111");
     expect(forwarded.body.actorId).toBe(platformAdmin.id);
     expect(forwarded.body.reason).toBe("lost device");
   });
 
   it("rejects a non-admin", async () => {
     const res = await request(app)
-      .post("/issuer/admin/revoke/cred-1")
+      .post("/issuer/admin/revoke/11111111-1111-1111-1111-111111111111")
       .set("Authorization", `Bearer ${guestToken}`)
       .send({});
     expect(res.status).toBe(403);

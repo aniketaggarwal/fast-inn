@@ -31,17 +31,30 @@ export function NavBar() {
               <Link to="/wallet" className="text-slate-600 hover:text-slate-900">
                 Wallet
               </Link>
+              <Link to="/my-data" className="text-slate-600 hover:text-slate-900">
+                My data
+              </Link>
             </>
           )}
           {(user?.role === "HOTEL_STAFF" || user?.role === "HOTEL_ADMIN") && (
-            <Link to="/dashboard" className="text-slate-600 hover:text-slate-900">
-              Dashboard
-            </Link>
+            <>
+              <Link to="/dashboard" className="text-slate-600 hover:text-slate-900">
+                Dashboard
+              </Link>
+              <Link to="/hotel/register" className="text-slate-600 hover:text-slate-900">
+                Register
+              </Link>
+            </>
           )}
           {user?.role === "PLATFORM_ADMIN" && (
-            <Link to="/admin/review" className="text-slate-600 hover:text-slate-900">
-              KYC review
-            </Link>
+            <>
+              <Link to="/admin/review" className="text-slate-600 hover:text-slate-900">
+                KYC review
+              </Link>
+              <Link to="/admin/panel" className="text-slate-600 hover:text-slate-900">
+                Admin panel
+              </Link>
+            </>
           )}
           {user ? (
             <>

@@ -243,6 +243,91 @@ describe("POST /checkin/sessions/:id/present — happy path", () => {
       .set("Authorization", `Bearer ${staffAToken}`);
     expect(completeRes.status).toBe(200);
     expect(completeRes.body.status).toBe("COMPLETED");
+
+    // Section 8 compliance side effects: a consent record for exactly the
+    // disclosed claims, and an audit_log entry — both written in the same
+    // transaction as the guest_register insert, not bolted on separately.
+    // consents has FORCE RLS (like bookings above), so reading it back
+    // needs the same tenant-scoped transaction a real request would use.
+    const consentRow = await withTenantTransaction(hotelA, (client) =>
+      client.query("SELECT claims_disclosed_json, purpose, withdrawn_at FROM consents WHERE booking_id = $1", [
+        bookingId,
+      ])
+    );
+    expect(consentRow.rowCount).toBe(1);
+    expect(consentRow.rows[0].claims_disclosed_json.sort()).toEqual(["fullName", "idLast4", "idType", "nationality"]);
+    expect(consentRow.rows[0].withdrawn_at).toBeNull();
+
+    const auditRow = await pool.query(
+      "SELECT action, entity, entity_id FROM audit_log WHERE entity = 'checkin_session' AND entity_id = $1",
+      [session.sessionId]
+    );
+    expect(auditRow.rowCount).toBe(1);
+    expect(auditRow.rows[0].action).toBe("checkin_verified");
+
+    // No form_c_records row for an Indian national. guest_register has
+    // FORCE RLS, so — like the consents/departure_at reads above — this
+    // needs a tenant-scoped transaction, not a plain pool.query (which
+    // would return 0 rows regardless of whether the feature under test
+    // actually works, making the assertion a false positive either way).
+    const formC = await withTenantTransaction(hotelA, (client) =>
+      client.query(
+        `SELECT f.id FROM form_c_records f
+         JOIN guest_register g ON g.id = f.guest_register_id
+         WHERE g.booking_id = $1`,
+        [bookingId]
+      )
+    );
+    expect(formC.rowCount).toBe(0);
+
+    // Checkout closes the loop the retention job needs (departure_at).
+    const checkoutRes = await request(app)
+      .post(`/hotel/bookings/${bookingId}/checkout`)
+      .set("Authorization", `Bearer ${staffAToken}`);
+    expect(checkoutRes.status).toBe(200);
+    expect(checkoutRes.body.status).toBe("CHECKED_OUT");
+
+    const registerRow = await withTenantTransaction(hotelA, (client) =>
+      client.query("SELECT departure_at FROM guest_register WHERE booking_id = $1", [bookingId])
+    );
+    expect(registerRow.rows[0].departure_at).not.toBeNull();
+  });
+
+  it("creates a form_c_records row for a non-Indian national", async () => {
+    const device = await makeDeviceKeyPair();
+    const { jwt, disclosures } = await issueTestCredential({
+      holderPublicKeyJwk: device.publicKeyJwk,
+      claims: { fullName: "Foreign Guest", idType: "PASSPORT", idLast4: "5678", nationality: "US" },
+    });
+    const shared = selectDisclosures(disclosures, ["fullName", "idType", "idLast4", "nationality"]);
+
+    const bookingId = await createReservedBooking();
+    const session = (
+      await request(app).post("/checkin/sessions").set("Authorization", `Bearer ${staffAToken}`).send({ bookingId })
+    ).body;
+    const presentation = await buildPresentation({
+      credentialJwt: jwt,
+      disclosures: shared,
+      privateKey: device.privateKey,
+      nonce: session.nonce,
+      hotelId: session.hotelId,
+    });
+
+    const presentRes = await request(app)
+      .post(`/checkin/sessions/${session.sessionId}/present`)
+      .send({ presentation, hotelId: session.hotelId });
+    expect(presentRes.status).toBe(200);
+
+    const formC = await withTenantTransaction(hotelA, (client) =>
+      client.query(
+        `SELECT f.passport_no_last4 FROM form_c_records f
+         JOIN guest_register g ON g.id = f.guest_register_id
+         WHERE g.booking_id = $1`,
+        [bookingId]
+      )
+    );
+    expect(formC.rowCount).toBe(1);
+    expect(formC.rows[0].passport_no_last4).toBe("5678");
   });
 
   it("missing_required_claims when the guest doesn't disclose one of the four the register needs", async () => {

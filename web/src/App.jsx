@@ -13,6 +13,9 @@ import { GuestWalletPage } from "./pages/GuestWalletPage";
 import { AdminReviewPage } from "./pages/AdminReviewPage";
 import { StaffCheckinSessionPage } from "./pages/StaffCheckinSessionPage";
 import { GuestCheckinPresentPage } from "./pages/GuestCheckinPresentPage";
+import { HotelRegisterPage } from "./pages/HotelRegisterPage";
+import { GuestMyDataPage } from "./pages/GuestMyDataPage";
+import { AdminPanelPage } from "./pages/AdminPanelPage";
 
 export default function App() {
   return (
@@ -64,6 +67,14 @@ export default function App() {
               }
             />
             <Route
+              path="/my-data"
+              element={
+                <ProtectedRoute roles={["GUEST"]}>
+                  <GuestMyDataPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/dashboard"
               element={
                 <ProtectedRoute roles={["HOTEL_STAFF", "HOTEL_ADMIN"]}>
@@ -72,10 +83,26 @@ export default function App() {
               }
             />
             <Route
+              path="/hotel/register"
+              element={
+                <ProtectedRoute roles={["HOTEL_STAFF", "HOTEL_ADMIN"]}>
+                  <HotelRegisterPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/review"
               element={
                 <ProtectedRoute roles={["PLATFORM_ADMIN"]}>
                   <AdminReviewPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/panel"
+              element={
+                <ProtectedRoute roles={["PLATFORM_ADMIN"]}>
+                  <AdminPanelPage />
                 </ProtectedRoute>
               }
             />

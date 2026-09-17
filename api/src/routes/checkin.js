@@ -6,6 +6,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const { tenantScope } = require("../middleware/tenant");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { verifyGuestPresentation, VerificationError } = require("../services/verifier");
+const { logAudit } = require("../repo/audit");
 
 const router = Router();
 
@@ -185,9 +186,10 @@ router.post(
         return null; // consumed by a concurrent request between our check and this update
       }
 
-      await client.query(
+      const registerRow = await client.query(
         `INSERT INTO guest_register (hotel_id, booking_id, full_name, id_type, id_last4, nationality, arrival_at, credential_id)
-         VALUES ($1, $2, $3, $4, $5, $6, now(), $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6, now(), $7)
+         RETURNING id`,
         [
           hotelId,
           session.booking_id,
@@ -198,6 +200,43 @@ router.post(
           verification.credentialId,
         ]
       );
+
+      // Section 8: Form C is required for foreign nationals, flagged on
+      // the arrivals board. visa_type/arrival_from aren't claims this
+      // credential ever carries, so they're left null rather than
+      // fabricated — an honest gap called out in PROGRESS.md, not silently
+      // guessed at.
+      if (verification.claims.nationality !== "IN") {
+        await client.query(
+          `INSERT INTO form_c_records (guest_register_id, passport_no_last4)
+           VALUES ($1, $2)`,
+          [registerRow.rows[0].id, verification.claims.idType === "PASSPORT" ? verification.claims.idLast4 : null]
+        );
+      }
+
+      // DPDP consent capture (Section 8): recorded against the claims
+      // *actually disclosed* in this presentation (verification.claims'
+      // own keys), not some fixed list — a guest who left dateOfBirth
+      // unchecked on the consent screen has that same fact reflected here.
+      const booking = await client.query("SELECT guest_user_id FROM bookings WHERE id = $1", [session.booking_id]);
+      const guestUserId = booking.rows[0]?.guest_user_id || null;
+      if (guestUserId) {
+        await client.query(
+          `INSERT INTO consents (guest_user_id, hotel_id, booking_id, claims_disclosed_json, purpose, granted_at)
+           VALUES ($1, $2, $3, $4, $5, now())`,
+          [guestUserId, hotelId, session.booking_id, JSON.stringify(Object.keys(verification.claims)), "hotel check-in identity verification"]
+        );
+      }
+
+      await logAudit(client, {
+        actorUserId: guestUserId,
+        actorRole: "GUEST",
+        hotelId,
+        action: "checkin_verified",
+        entity: "checkin_session",
+        entityId: session.id,
+        meta: { bookingId: session.booking_id, credentialId: verification.credentialId, claimsDisclosed: Object.keys(verification.claims) },
+      });
 
       return updated.rows[0];
     });

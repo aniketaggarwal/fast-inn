@@ -9,6 +9,7 @@ export function HotelDashboardPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [startingId, setStartingId] = useState(null);
+  const [checkingOutId, setCheckingOutId] = useState(null);
 
   const load = async () => {
     try {
@@ -38,11 +39,32 @@ export function HotelDashboardPage() {
     }
   };
 
+  const checkout = async (bookingId) => {
+    setCheckingOutId(bookingId);
+    setError(null);
+    try {
+      await api.hotelCheckout(bookingId);
+      await load();
+    } catch (err) {
+      setError(err.body?.error || err.message);
+    } finally {
+      setCheckingOutId(null);
+    }
+  };
+
   if (loading) return <p className="mx-auto max-w-4xl px-4 py-8 text-sm text-slate-500">Loading…</p>;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-semibold text-slate-900">Hotel dashboard</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900">Hotel dashboard</h1>
+        <button
+          onClick={() => navigate("/hotel/register")}
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Guest register & Form C →
+        </button>
+      </div>
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
       <section className="mb-8">
@@ -93,6 +115,15 @@ export function HotelDashboardPage() {
                         className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700 disabled:opacity-50"
                       >
                         {startingId === b.id ? "Starting…" : "Check in"}
+                      </button>
+                    )}
+                    {b.status === "CHECKED_IN" && (
+                      <button
+                        onClick={() => checkout(b.id)}
+                        disabled={checkingOutId === b.id}
+                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {checkingOutId === b.id ? "Checking out…" : "Check out"}
                       </button>
                     )}
                   </td>

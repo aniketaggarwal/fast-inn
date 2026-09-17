@@ -51,4 +51,26 @@ async function withGuestTransaction(guestId, fn) {
   }
 }
 
-module.exports = { pool, withTenantTransaction, withGuestTransaction };
+// Platform-admin counterpart: some admin routes (GET /admin/register)
+// legitimately need to read across every tenant, which the hotel_id- and
+// guest_id-scoped branches can never satisfy in one query. See the
+// platform_admin branch added to every RLS policy in the
+// 1735300000000_compliance migration — this is the only thing that sets
+// that GUC, so it's impossible for a client-supplied value to reach it.
+async function withPlatformAdminTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.platform_admin', 'true', true)");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, withTenantTransaction, withGuestTransaction, withPlatformAdminTransaction };

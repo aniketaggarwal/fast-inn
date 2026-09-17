@@ -55,12 +55,17 @@ with a "no camera? upload a photo instead" fallback), a hotel staff
 dashboard (rooms + bookings for their own hotel, plus a "Check in" action
 that starts a live QR check-in session), a guest check-in consent screen
 (`/checkin/present` — reached via the QR's own URL, where the guest picks
-which credential claims to share), and an admin KYC review queue
-(`/admin/review`, now showing the doc image, the selfie image, and the
-face-match score side by side) — all gated by login. Self-registration at
-`/login` always creates a GUEST account; log in as
+which credential claims to share), an admin KYC review queue
+(`/admin/review`, showing the doc image, the selfie image, and the
+face-match score side by side), a hotel guest register with Form C export
+(`/hotel/register`, plus a "Check out" action on the dashboard), a
+guest-facing "my data" screen (`/my-data` — what's been shared, with whom,
+when; withdraw consent; delete account), and a platform-admin panel
+(`/admin/panel` — hotels, the audit log, and a cross-hotel register view
+with a revoke-credential action) — all gated by login. Self-registration
+at `/login` always creates a GUEST account; log in as
 `staff.ramaiah@hotelverify.test` / `staff.mgroad@hotelverify.test` for the
-staff side, `admin@hotelverify.test` for the review queue.
+staff side, `admin@hotelverify.test` for the review queue and admin panel.
 
 Face matching (`issuer/src/pipeline/facematch.js`) uses
 `@vladmandic/face-api` on its WASM backend, not the native `tfjs-node`
@@ -87,6 +92,14 @@ uploads to work — `docker-compose.yml` sets `MINIO_API_CORS_ALLOW_ORIGIN`
 for this already. Running MinIO outside Docker (e.g. via `brew install
 minio`), start it with `MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:5173`
 in the environment.
+
+DPDP-aligned data retention (Section 8): `npm run purge-retention` nulls
+`checkin_sessions.verified_claims_json` for bookings checked out more
+than `RETENTION_DAYS` ago (default 90). It's a script, not a cron job —
+run it by hand, or add it to a real deployment's crontab (its own file
+comment has an example line). ID documents/selfies don't need a separate
+purge step: they're already deleted from storage immediately at
+credential issuance (Milestone 4), well inside the retention window.
 
 Seeded accounts (password for all: `Password123!`):
 

@@ -16,6 +16,7 @@
     "seed": "node scripts/seed.js",
     "make-fake-ids": "node scripts/make-fake-ids.js",
     "face-far-frr-sweep": "node scripts/face-far-frr-sweep.js",
+    "purge-retention": "node scripts/purge-retention.js",
     "migrate:issuer": "npm run migrate --workspace=issuer",
     "migrate:api": "npm run migrate --workspace=api",
     "migrate": "npm run migrate:issuer && npm run migrate:api",

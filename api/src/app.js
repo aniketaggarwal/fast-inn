@@ -10,6 +10,9 @@ const hotelBookingsRoutes = require("./routes/hotelBookings");
 const issuerReviewRoutes = require("./routes/issuerReview");
 const checkinRoutes = require("./routes/checkin");
 const adminNetworkRoutes = require("./routes/adminNetwork");
+const hotelRegisterRoutes = require("./routes/hotelRegister");
+const myDataRoutes = require("./routes/myData");
+const adminRoutes = require("./routes/admin");
 
 function createApp() {
   const app = express();
@@ -26,8 +29,9 @@ function createApp() {
   app.use(issuerReviewRoutes);
   app.use(checkinRoutes);
   app.use(adminNetworkRoutes);
-
-  // Milestone 7+ will add: /compliance, /admin/hotels, /admin/audit.
+  app.use(hotelRegisterRoutes);
+  app.use(myDataRoutes);
+  app.use(adminRoutes);
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

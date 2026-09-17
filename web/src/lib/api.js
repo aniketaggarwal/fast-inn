@@ -48,6 +48,26 @@ export const api = {
 
   hotelRooms: () => request("/hotel/rooms"),
   hotelBookings: () => request("/hotel/bookings"),
+  hotelCheckout: (bookingId) => request(`/hotel/bookings/${bookingId}/checkout`, { method: "POST" }),
+
+  hotelRegister: (from, to) => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const qs = params.toString();
+    return request(`/hotel/register${qs ? `?${qs}` : ""}`);
+  },
+  // A plain <a href> can't carry the Authorization header, so this fetches
+  // the CSV itself and hands back a Blob for the caller to save — same
+  // auth path as every other request, not a signed/token-in-URL workaround.
+  async downloadFormCCsv() {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/hotel/exports/form-c.csv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`export_failed_${res.status}`);
+    return res.blob();
+  },
 
   startCheckin: (bookingId) => request("/checkin/sessions", { method: "POST", body: { bookingId } }),
   getCheckinSession: (sessionId) => request(`/checkin/sessions/${sessionId}`),
@@ -64,6 +84,15 @@ export const api = {
     request(`/issuer/review/${submissionId}/decide`, { method: "POST", body: payload }),
   issuerRevoke: (credentialId, reason) =>
     request(`/issuer/admin/revoke/${credentialId}`, { method: "POST", body: { reason } }),
+
+  adminHotels: () => request("/admin/hotels"),
+  adminAudit: (limit = 100) => request(`/admin/audit?limit=${limit}`),
+  adminRegister: (limit = 100) => request(`/admin/register?limit=${limit}`),
+
+  // Guest-facing DPDP "my data" screen.
+  myConsents: () => request("/consents/mine"),
+  withdrawConsent: (consentId) => request(`/consents/${consentId}/withdraw`, { method: "POST" }),
+  deleteAccount: () => request("/account", { method: "DELETE" }),
 
   // Guest-facing KYC — direct to the issuer, no api auth token.
   kycPresign: (docType) => issuerRequest("/kyc/uploads/presign", { method: "POST", body: { docType } }),
