@@ -4,7 +4,7 @@ const { pool } = require("../src/db");
 const s3 = require("../src/storage/s3");
 const { loadOrCreateKeys, getJWKS } = require("../src/keys");
 const { hashPhone } = require("../src/repo");
-const { makeCardBuffer, GOOD_AADHAAR_VALUES, cleanupIssuerData } = require("./helpers");
+const { makeCardBuffer, GOOD_AADHAAR_VALUES, cleanupIssuerData, FACE_A } = require("./helpers");
 
 const app = createApp();
 const SERVICE_TOKEN = process.env.ISSUER_SERVICE_TOKEN;
@@ -22,7 +22,7 @@ afterAll(async () => {
 
 async function issueApprovedCredential(phone, seed) {
   const values = GOOD_AADHAAR_VALUES(seed);
-  const docBuffer = await makeCardBuffer("AADHAAR", values);
+  const docBuffer = await makeCardBuffer("AADHAAR", values, { faceBuffer: FACE_A });
 
   const presign = await request(app).post("/kyc/uploads/presign").send({ docType: "AADHAAR" });
   await fetch(presign.body.docUploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: docBuffer });

@@ -1,5 +1,199 @@
 # PROGRESS
 
+## Milestone 6 — Face matching, FAR/FRR study, liveness challenge (done)
+
+Deliverable per the build spec: real face matching replacing the
+Milestone 4 stub, a measured FAR/FRR threshold sweep with a chart
+committed to `docs/`, and an active liveness challenge. Done-when: chart
+committed, threshold chosen and justified here. Verified end to end
+through the real browser UI (not just the 58 automated tests this
+milestone brought the issuer suite to) — a matching doc+selfie pair
+auto-issues a credential; a mismatched pair routes to human review, and
+the admin review screen shows both images side by side with the
+face-match score.
+
+### What works
+
+- **Real face detection and 128-d embeddings** via `@vladmandic/face-api`
+  (`issuer/src/pipeline/facematch.js`) — `ssdMobilenetv1` for detection,
+  `faceLandmark68Net` + `faceRecognitionNet` for the embedding, compared
+  by Euclidean distance. Not a heuristic or a stub: this is the same
+  library and model weights the spec names, actually running inference on
+  actual JPEG bytes.
+- **Explicit handling of the three ways a face-match can fail** (Section
+  9.4), each its own status rather than a crash or a silent wrong answer:
+  `id_photo_no_face` / `selfie_no_face`, `id_photo_multiple_faces` /
+  `selfie_multiple_faces`, and a genuine below-threshold score. All three
+  route to `NEEDS_REVIEW`, never a hard rejection — a human can still look
+  at the actual photos and decide.
+- **A measured FAR/FRR sweep** (`scripts/face-far-frr-sweep.js`), fetching
+  40 genuine + 40 impostor pairs live from LFW (Labeled Faces in the
+  Wild) via its `logasja/lfw` mirror on Hugging Face's dataset-viewer API
+  — the "public dataset like LFW" option Section 0/9.2 names explicitly.
+  31 of each were usable (a handful skipped where the detector
+  legitimately couldn't find exactly one face — profile shots,
+  occlusion). Threshold swept 0.30–0.80 in steps of 0.05; results and
+  chart committed to [`docs/face-match-far-frr.md`](docs/face-match-far-frr.md)
+  and [`docs/face-match-far-frr-chart.svg`](docs/face-match-far-frr-chart.svg).
+- **Chosen operating point: `FACE_MATCH_THRESHOLD = 0.6`** — measured FAR
+  0.0%, FRR 3.2%. Per Section 9.2's own guidance, biased toward rejecting
+  borderline matches (which just fall through to human review, not a hard
+  rejection) rather than accepting an impostor. It's the *most permissive*
+  threshold tested that still keeps FAR at 0%, not the strictest — loosening
+  it further would start letting impostor pairs through; tightening it
+  further only adds more genuine pairs to the review queue for no FAR
+  benefit.
+- **An active liveness challenge** (Section 9.3):
+  `issuer/src/pipeline/liveness.js`'s `checkLiveness()` takes 3–10 captured
+  frames and checks exactly the two things the spec asks for — a face
+  detected in every frame, and the frames actually differing from each
+  other by more than a noise threshold (mean greyscale pixel difference).
+  `POST /kyc/liveness/check` is a public pre-check the frontend calls
+  before letting the guest upload the captured frame as their selfie.
+  `web/src/components/LivenessCapture.jsx` drives the browser camera
+  (`getUserMedia`), shows one of four random prompts ("Blink twice", "Turn
+  your head left, then right", "Smile", "Nod your head"), captures 4
+  frames ~400ms apart, and on a pass uses the last frame as the selfie —
+  same presigned-upload path as before.
+- **KYC pipeline gating now actually uses the face-match result**:
+  `autoPass` in `issuer/src/routes/kyc.js` requires OCR passing, no
+  duplicate-document fraud flag, *and* `faceMatch.matched`. A new
+  `face_match_status` column (migration
+  `1735100000000_add-face-match-status`) plus the existing `face_score`
+  column are both surfaced to the human reviewer in `GET /review` and
+  rendered in `AdminReviewPage.jsx` alongside the doc and selfie images
+  side by side — previously the selfie image was fetched by the backend
+  but never actually rendered on that page at all.
+- **A "no camera? upload a photo instead" fallback** on the guest KYC
+  page, since not every guest (or every browser) has camera access — the
+  plain file-upload path from Milestone 4 still works and still goes
+  through the same real face-match pipeline, just without the liveness
+  pre-check.
+
+### Bugs found and fixed while building this (worth knowing for the viva)
+
+- **`@tensorflow/tfjs-node@4.22.0` (the latest published release) is
+  broken on Node 26.x** — a real, currently-open upstream bug
+  ([tensorflow/tfjs#8746](https://github.com/tensorflow/tfjs/issues/8746)),
+  not an environment misconfiguration. Its compiled native-binding layer
+  calls a `tfjs-core` util function (`isNullOrUndefined`) that was removed
+  from the `tfjs-core` version it itself depends on; the fix merged
+  upstream (`tensorflow/tfjs#8425`) but was never published to npm. A bare
+  `tf.tensor([1,2,3])` smoke test passes (misleadingly), but any real
+  inference op crashes. Found by actually running face-api's detection
+  pipeline, not by reading changelogs. Worked around by using face-api's
+  alternate WASM-backend Node build
+  (`@vladmandic/face-api/dist/face-api.node-wasm.js` +
+  `@tensorflow/tfjs-backend-wasm`) instead of its default entry point,
+  which never touches the native binding — slower per-inference, fully
+  acceptable for a per-submission KYC pipeline that isn't real-time video.
+- **Embedding a test face photo into the synthetic ID card fixture broke
+  the quality gate** (`too_bright`, 221.3 vs. the 220 max) — not a face-api
+  bug, a test-fixture bug. The card's own background colour is already
+  right at brightness ~218.6 out of the 220 ceiling; naively extending the
+  canvas with more near-white margin to fit the face pushed the average
+  over. Fixed by using a neutral grey margin instead of the card's own
+  near-white background for the appended photo area (`test/helpers.js`).
+  Also fixed: the default `makeCardBuffer()` (no options) no longer embeds
+  a face at all, so every pre-existing quality/OCR test keeps the exact
+  metrics it was calibrated against — only the KYC/review/revocation
+  tests that need a real matchable face opt in explicitly via
+  `{ faceBuffer: FACE_A }`.
+- **The FAR/FRR sweep script's own threshold-selection logic picked the
+  worst threshold, not the best one**, on the first run: `rows.find(r =>
+  r.far <= 0.05)` returns the *smallest* threshold satisfying the bound
+  (0.30, FRR 90.3% — useless), not the most permissive one still meeting
+  it. Fixed to filter then take the last (largest) match, which correctly
+  lands on 0.60.
+- **A new migration column got written but never run before the first
+  real submission** — `face_match_status` caused a bare Postgres
+  `column "face_match_status" does not exist` 500 the moment a real KYC
+  submission tried to write it, because `npm run migrate:issuer` was a
+  step I'd written down but not actually executed yet. Caught immediately
+  by running the affected test/route directly rather than trusting the
+  green test run from before the migration existed.
+- Both bugs above cascaded into unrelated-looking test failures
+  (`review.test.js`, `revocation.test.js`, the duplicate-document fraud
+  test) that were really the same one or two root causes each — a
+  reminder to chase the first real error message rather than patching
+  each failing assertion individually.
+
+### Notable decisions worth defending in the viva
+
+- **Dataset for the FAR/FRR study: LFW, fetched live via Hugging Face's
+  dataset-viewer API, never downloaded to disk or committed.** The spec
+  names this exact option. LFW's own `pairsDevTest` split is already
+  genuine/impostor labelled (its `logasja/lfw` "pairs" config exposes this
+  directly as `pair: 1`/`pair: 0`), which is exactly the labelled-pairs
+  structure Section 9.2 asks for — no manual pairing process needed.
+- **Test *fixtures* (the two faces reused across the automated test
+  suite) are deliberately NOT LFW** — they're two images from
+  thispersondoesnotexist.com, a StyleGAN model that generates faces of
+  people who do not exist. The FAR/FRR *study* uses real people's photos
+  (LFW) because that's what an accuracy measurement needs and the spec
+  explicitly sanctions it, run once, transiently, never committed. Things
+  permanently checked into the repo and run on every `npm test` are a
+  different judgement call — using AI-generated, not-a-real-person faces
+  there sidesteps any privacy/consent question entirely rather than
+  relying on LFW's academic-research licensing for a use LFW wasn't
+  specifically built for.
+- **WASM backend over the native `tfjs-node` binding** — not a
+  workaround of convenience but the only currently-working option on this
+  environment's Node version, given the confirmed-open upstream bug above.
+  Documented so a future "why is this using WASM, that's unusual" question
+  has a real answer with a linked GitHub issue, not "it just worked."
+- **Liveness checks motion + face-presence, not the specific prompted
+  gesture.** Verifying "did this person actually blink" or "did the head
+  turn the prompted direction" needs real per-frame landmark-sequence
+  analysis (eye-aspect-ratio time series, head-pose estimation) that this
+  project doesn't attempt — and critically, this environment has no
+  camera to record real test sequences to calibrate such a thing against
+  in the first place. Section 9.3's own wording only asks for "frames
+  differ AND a face is present throughout," which is exactly what's
+  implemented: honest, tractable, and still genuinely defeats the
+  specific attack named (a flat printed photo, motionless, held up to a
+  camera) regardless of which prompt was shown.
+- **The live-camera capture UX could not be exercised end-to-end in this
+  session's automated browser pane** — it has no camera device, and
+  `getUserMedia` is blocked outright rather than rejecting with a normal
+  permission error (it can hang indefinitely instead, which the component
+  now guards with an 8s timeout — a real robustness fix this discovery
+  motivated, not just a workaround for the test environment). What *was*
+  verified for real: the `/kyc/liveness/check` endpoint and its underlying
+  `checkLiveness()` logic (real face-api inference, real frame-difference
+  computation, via Supertest against real synthetic frames), and the
+  entire rest of the KYC flow including the fallback file-upload selfie
+  path, driven through the actual rendered browser UI.
+- A recurring macOS-only warning worth knowing about, not a test failure:
+  `objc[...]: Class GNotificationCenterDelegate is implemented in both
+  ...sharp-libvips...dylib and ...canvas...libgio...dylib`. Both `sharp`
+  and `canvas` bundle their own native image libraries, and on this
+  platform they both happen to register the same Objective-C class name.
+  It's a real warning ("may cause spurious casting failures and
+  mysterious crashes") that didn't manifest as an actual failure across
+  many full test runs here, but it's the kind of thing worth mentioning
+  if asked about test flakiness on macOS specifically.
+
+### What was stubbed/deferred
+
+- The FAR/FRR threshold is tuned on LFW's selfie-vs-selfie-quality pairs,
+  not on real ID-photo-vs-selfie pairs (this project's actual use case,
+  which the spec itself calls harder) — documented explicitly in
+  `docs/face-match-far-frr.md` as a starting point, not a validated
+  production number.
+- Liveness has no resistance to a video replay of a real person or a 3D
+  mask — by design and by the spec's own scoping, "defeats casual photo
+  attacks" only.
+- The four liveness prompts are frontend copy only; nothing server-side
+  ties a specific prompt to a specific expected motion.
+
+### Next up
+
+Milestone 7 (compliance): register view, Form C export, consent ledger,
+retention purge job, audit log viewer, revocation + admin panel. Done-when
+per the spec: revoking a credential makes the next check-in fail with a
+clear reason.
+
 ## Milestone 5 — Check-in (done)
 
 Deliverable per the build spec: session + nonce QR, guest wallet consent

@@ -69,6 +69,7 @@ export const api = {
   kycPresign: (docType) => issuerRequest("/kyc/uploads/presign", { method: "POST", body: { docType } }),
   kycSubmit: (payload) => issuerRequest("/kyc/submit", { method: "POST", body: payload }),
   kycStatus: (submissionId) => issuerRequest(`/kyc/${submissionId}/status`),
+  kycLivenessCheck: (frames) => issuerRequest("/kyc/liveness/check", { method: "POST", body: { frames } }),
 
   async uploadToPresignedUrl(url, blob) {
     const res = await fetch(url, { method: "PUT", headers: { "Content-Type": blob.type || "image/png" }, body: blob });

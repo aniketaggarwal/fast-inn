@@ -49,15 +49,29 @@ npm run dev:web      # http://localhost:5173 (new terminal)
 
 `web/` is a guest booking flow (browse hotels → check availability → book →
 manage bookings), a KYC verification flow (`/kyc` → `/wallet`, using a
-synthetic ID from `fixtures/fake-ids/` after running `make-fake-ids`), a
-hotel staff dashboard (rooms + bookings for their own hotel, plus a "Check
-in" action that starts a live QR check-in session), a guest check-in
-consent screen (`/checkin/present` — reached via the QR's own URL, where
-the guest picks which credential claims to share), and an admin KYC review
-queue (`/admin/review`) — all gated by login. Self-registration at
+synthetic ID from `fixtures/fake-ids/` after running `make-fake-ids`; the
+selfie step is a live camera capture with a liveness challenge by default,
+with a "no camera? upload a photo instead" fallback), a hotel staff
+dashboard (rooms + bookings for their own hotel, plus a "Check in" action
+that starts a live QR check-in session), a guest check-in consent screen
+(`/checkin/present` — reached via the QR's own URL, where the guest picks
+which credential claims to share), and an admin KYC review queue
+(`/admin/review`, now showing the doc image, the selfie image, and the
+face-match score side by side) — all gated by login. Self-registration at
 `/login` always creates a GUEST account; log in as
 `staff.ramaiah@hotelverify.test` / `staff.mgroad@hotelverify.test` for the
 staff side, `admin@hotelverify.test` for the review queue.
+
+Face matching (`issuer/src/pipeline/facematch.js`) uses
+`@vladmandic/face-api` on its WASM backend, not the native `tfjs-node`
+binding — that binding is currently broken on Node 23+
+([tensorflow/tfjs#8746](https://github.com/tensorflow/tfjs/issues/8746)).
+Nothing extra to install; `@tensorflow/tfjs-backend-wasm` and the model
+weights both ship inside `node_modules`. The chosen match threshold and
+the FAR/FRR study behind it are in
+[`docs/face-match-far-frr.md`](docs/face-match-far-frr.md); rerun the
+study with `npm run face-far-frr-sweep` (hits the network — fetches LFW
+pairs from Hugging Face — so it's not part of `npm test` or CI).
 
 The check-in demo needs both a booking and a credential for the *same*
 guest login: book a room as a GUEST, run `/kyc` for that same account, then

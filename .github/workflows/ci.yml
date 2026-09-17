@@ -56,6 +56,12 @@ jobs:
           node-version: 20
           cache: npm
 
+      # `canvas` (Milestone 6's face-match pipeline) ships prebuilt
+      # binaries for most platforms, but falls back to a from-source build
+      # needing these system libs if none matches this runner exactly.
+      - name: Install canvas native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
       - name: Install dependencies
         run: npm ci
 

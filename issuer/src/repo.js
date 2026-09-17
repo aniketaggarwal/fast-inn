@@ -38,13 +38,13 @@ async function setSubmissionObjectKeys(id, { docObjectKey, selfieObjectKey }) {
   );
 }
 
-async function recordExtractionResult(id, { ocrJson, ocrConfidence, faceScore, status }) {
+async function recordExtractionResult(id, { ocrJson, ocrConfidence, faceScore, faceMatchStatus, status }) {
   const result = await pool.query(
     `UPDATE kyc_submissions
-     SET ocr_json = $2, ocr_confidence = $3, face_score = $4, status = $5
+     SET ocr_json = $2, ocr_confidence = $3, face_score = $4, face_match_status = $5, status = $6
      WHERE id = $1
-     RETURNING id, guest_id, doc_type, status, ocr_json, ocr_confidence`,
-    [id, ocrJson, ocrConfidence, faceScore, status]
+     RETURNING id, guest_id, doc_type, status, ocr_json, ocr_confidence, face_score, face_match_status`,
+    [id, ocrJson, ocrConfidence, faceScore, faceMatchStatus || null, status]
   );
   return result.rows[0];
 }

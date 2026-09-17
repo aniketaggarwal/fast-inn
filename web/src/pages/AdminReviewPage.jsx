@@ -48,9 +48,25 @@ function SubmissionCard({ submission, onDecided }) {
         <span className="text-xs text-slate-400">confidence {submission.ocrConfidence?.toFixed(1)}</span>
       </div>
 
-      {submission.docImageUrl && (
-        <img src={submission.docImageUrl} alt="Submitted document" className="mb-3 w-full rounded border" />
-      )}
+      <div className="mb-3 flex gap-2">
+        {submission.docImageUrl && (
+          <img src={submission.docImageUrl} alt="Submitted document" className="w-1/2 rounded border" />
+        )}
+        {submission.selfieImageUrl && (
+          <img src={submission.selfieImageUrl} alt="Submitted selfie" className="w-1/2 rounded border" />
+        )}
+      </div>
+
+      <p className="mb-3 text-xs">
+        Face match:{" "}
+        {submission.faceMatchStatus === "ok" ? (
+          <span className={submission.faceScore >= 0.4 ? "text-slate-600" : "text-amber-600 font-medium"}>
+            score {submission.faceScore?.toFixed(2)} (distance-based; lower confidence still needs a human look)
+          </span>
+        ) : (
+          <span className="text-amber-600 font-medium">{submission.faceMatchStatus || "not evaluated"}</span>
+        )}
+      </p>
 
       <div className="space-y-2">
         {FIELD_NAMES.map((name) => {

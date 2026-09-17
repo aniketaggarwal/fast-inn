@@ -6,18 +6,23 @@ const kycRoutes = require("./routes/kyc");
 const reviewRoutes = require("./routes/review");
 const jwksRoutes = require("./routes/jwks");
 const revocationRoutes = require("./routes/revocation");
+const livenessRoutes = require("./routes/liveness");
 
 function createApp() {
   const app = express();
   app.use(helmet());
   app.use(cors());
-  app.use(express.json());
+  // Default 100kb is fine for every other route here, but the liveness
+  // check's multiple base64-encoded camera frames (Section 9.3) don't fit
+  // in it.
+  app.use(express.json({ limit: "5mb" }));
 
   app.use(healthRoutes);
   app.use(kycRoutes);
   app.use(reviewRoutes);
   app.use(jwksRoutes);
   app.use(revocationRoutes);
+  app.use(livenessRoutes);
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

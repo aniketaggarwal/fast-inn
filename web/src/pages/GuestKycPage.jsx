@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getOrCreateDeviceKey } from "../lib/deviceKey";
 import { saveCredential, savePendingSubmission } from "../lib/wallet";
+import { LivenessCapture } from "../components/LivenessCapture";
 
 const DOC_TYPES = [
   { value: "AADHAAR", label: "Aadhaar" },
@@ -16,6 +17,7 @@ export function GuestKycPage() {
   const [docType, setDocType] = useState("AADHAAR");
   const [docFile, setDocFile] = useState(null);
   const [selfieFile, setSelfieFile] = useState(null);
+  const [selfieMode, setSelfieMode] = useState("live"); // "live" | "upload"
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -135,14 +137,36 @@ export function GuestKycPage() {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Selfie</label>
-          <input
-            type="file"
-            accept="image/*"
-            required
-            onChange={(e) => setSelfieFile(e.target.files?.[0] || null)}
-            className="w-full text-sm"
-          />
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-sm font-medium text-slate-700">Selfie</label>
+            <button
+              type="button"
+              onClick={() => {
+                setSelfieFile(null);
+                setSelfieMode((m) => (m === "live" ? "upload" : "live"));
+              }}
+              className="text-xs text-slate-500 underline"
+            >
+              {selfieMode === "live" ? "No camera? Upload a photo instead" : "Use live camera instead"}
+            </button>
+          </div>
+
+          {selfieMode === "live" ? (
+            <>
+              {/* Section 9.3: a live capture + liveness challenge, checked
+                  server-side (issuer/src/pipeline/liveness.js) before this
+                  page ever uploads anything as the selfie. */}
+              <LivenessCapture onCaptured={setSelfieFile} />
+              {selfieFile && <p className="mt-1 text-sm text-green-700">Live selfie captured ✓</p>}
+            </>
+          ) : (
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setSelfieFile(e.target.files?.[0] || null)}
+              className="w-full text-sm"
+            />
+          )}
         </div>
 
         <label className="flex items-start gap-2 text-sm text-slate-700">

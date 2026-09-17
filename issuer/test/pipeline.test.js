@@ -3,7 +3,9 @@ const { runQualityGate } = require("../src/pipeline/quality");
 const { extractFields } = require("../src/pipeline/extract");
 const { isValidVerhoeff, appendVerhoeffCheckDigit, FIELD_VALIDATORS } = require("../src/pipeline/validators");
 const { computeIsAdult } = require("../src/pipeline/claims");
-const { makeCardBuffer, validAadhaarNumber, GOOD_AADHAAR_VALUES } = require("./helpers");
+const { matchFaces, faceDescriptorFor, FACE_MATCH_THRESHOLD } = require("../src/pipeline/facematch");
+const { checkLiveness } = require("../src/pipeline/liveness");
+const { makeCardBuffer, validAadhaarNumber, GOOD_AADHAAR_VALUES, FACE_A, FACE_B } = require("./helpers");
 
 describe("Verhoeff checksum", () => {
   it("generates a check digit that validates", () => {
@@ -106,6 +108,99 @@ describe("runQualityGate", () => {
     const result = await runQualityGate(bright);
     expect(result.passed).toBe(false);
     expect(result.reasons).toContain("too_bright");
+  });
+});
+
+// Uses real @vladmandic/face-api detection/embedding (WASM backend — see
+// facematch.js for why not the native tfjs-node binding) against two
+// fixed, committed AI-generated (not-a-real-person) photos, not mocks.
+// Model loading is lazy and memoized in facematch.js itself, so the first
+// test here pays that cost and the rest reuse it.
+describe("matchFaces / faceDescriptorFor", () => {
+  it("reports a genuine match (same photo) as matched, distance ~0", async () => {
+    const result = await matchFaces(FACE_A, FACE_A);
+    expect(result.status).toBe("ok");
+    expect(result.distance).toBeLessThan(0.1);
+    expect(result.matched).toBe(true);
+  });
+
+  it("reports an impostor pair (two different faces) as not matched", async () => {
+    const result = await matchFaces(FACE_A, FACE_B);
+    expect(result.status).toBe("ok");
+    expect(result.distance).toBeGreaterThan(FACE_MATCH_THRESHOLD);
+    expect(result.matched).toBe(false);
+  });
+
+  it("flags a selfie with no detectable face instead of crashing", async () => {
+    const blank = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#808080" } })
+      .png()
+      .toBuffer();
+    const result = await matchFaces(FACE_A, blank);
+    expect(result.status).toBe("selfie_no_face");
+    expect(result.matched).toBe(false);
+    expect(result.distance).toBeNull();
+  });
+
+  it("flags an ID photo with no detectable face instead of crashing", async () => {
+    const blank = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#808080" } })
+      .png()
+      .toBuffer();
+    const result = await matchFaces(blank, FACE_A);
+    expect(result.status).toBe("id_photo_no_face");
+    expect(result.matched).toBe(false);
+  });
+
+  it("flags a photo with more than one face", async () => {
+    const collage = await sharp({ create: { width: 400, height: 200, channels: 3, background: "#fdfdf7" } })
+      .composite([
+        { input: await sharp(FACE_A).resize(180, 180).png().toBuffer(), left: 0, top: 10 },
+        { input: await sharp(FACE_B).resize(180, 180).png().toBuffer(), left: 200, top: 10 },
+      ])
+      .png()
+      .toBuffer();
+    const result = await faceDescriptorFor(collage);
+    expect(result.status).toBe("multiple_faces");
+    expect(result.descriptor).toBeNull();
+  });
+});
+
+// Section 9.3. checkLiveness only verifies "a face in every frame" +
+// "frames actually differ" — not that a specific gesture happened (see
+// liveness.js's own comment on why). The pass case here is genuinely
+// three distinct, still-detectable frames (brightness-shifted from one
+// real photo) — the closest thing to real webcam variation this
+// environment (no camera) can produce; it is not a substitute for testing
+// the real capture UX in a browser with a live camera.
+describe("checkLiveness", () => {
+  async function varyBrightness(buffer, factor) {
+    return sharp(buffer).modulate({ brightness: factor }).jpeg().toBuffer();
+  }
+
+  it("passes three distinct frames that each contain exactly one face", async () => {
+    const frames = await Promise.all([1.0, 1.15, 0.85].map((f) => varyBrightness(FACE_A, f)));
+    const result = await checkLiveness(frames);
+    expect(result).toEqual({ passed: true, reason: null });
+  });
+
+  it("rejects fewer than the minimum frame count", async () => {
+    const result = await checkLiveness([FACE_A, FACE_A]);
+    expect(result).toEqual({ passed: false, reason: "insufficient_frames" });
+  });
+
+  it("rejects identical frames as no motion (the flat-photo-attack case)", async () => {
+    const result = await checkLiveness([FACE_A, FACE_A, FACE_A]);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toBe("no_motion_detected");
+  });
+
+  it("rejects a frame with no detectable face", async () => {
+    const blank = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#808080" } })
+      .png()
+      .toBuffer();
+    const frames = await Promise.all([1.0, 1.15, 0.85].map((f) => varyBrightness(FACE_A, f)));
+    frames[1] = blank;
+    const result = await checkLiveness(frames);
+    expect(result).toEqual({ passed: false, reason: "face_not_detected" });
   });
 });
 

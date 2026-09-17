@@ -3,7 +3,7 @@ const { asyncHandler } = require("../utils/asyncHandler");
 const { DOC_TEMPLATES } = require("../pipeline/template");
 const { runQualityGate } = require("../pipeline/quality");
 const { extractFields } = require("../pipeline/extract");
-const { stubFaceMatch } = require("../pipeline/facematch");
+const { matchFaces } = require("../pipeline/facematch");
 const { issueCredentialForSubmission, deleteSubmissionDocuments } = require("../pipeline/issue");
 const s3 = require("../storage/s3");
 const repo = require("../repo");
@@ -57,10 +57,11 @@ router.post(
     await repo.setSubmissionObjectKeys(submission.id, { docObjectKey: docKey, selfieObjectKey: selfieKey });
 
     let docBuffer;
+    let selfieBuffer;
     try {
-      docBuffer = await s3.getObjectBuffer(docKey);
+      [docBuffer, selfieBuffer] = await Promise.all([s3.getObjectBuffer(docKey), s3.getObjectBuffer(selfieKey)]);
     } catch {
-      return res.status(400).json({ error: "doc_upload_not_found" });
+      return res.status(400).json({ error: "upload_not_found" });
     }
 
     // Quality gate runs before OCR ever sees the image (Section 9.1) — an
@@ -78,7 +79,7 @@ router.post(
     }
 
     const extraction = await extractFields(docBuffer, docType);
-    await stubFaceMatch();
+    const faceMatch = await matchFaces(docBuffer, selfieBuffer);
     const docHash = repo.hashBuffer(docBuffer);
 
     // Fraud signal (Section 9.8): the same document bound to a different
@@ -94,13 +95,14 @@ router.post(
       });
     }
 
-    const autoPass = extraction.allPassed && !isDuplicateForAnotherGuest;
+    const autoPass = extraction.allPassed && !isDuplicateForAnotherGuest && faceMatch.matched;
 
     if (!autoPass) {
       await repo.recordExtractionResult(submission.id, {
         ocrJson: extraction.fields,
         ocrConfidence: extraction.overallConfidence,
-        faceScore: null,
+        faceScore: faceMatch.score,
+        faceMatchStatus: faceMatch.status,
         status: "NEEDS_REVIEW",
       });
       return res.status(202).json({ status: "NEEDS_REVIEW", submissionId: submission.id });
@@ -109,7 +111,8 @@ router.post(
     await repo.recordExtractionResult(submission.id, {
       ocrJson: extraction.fields,
       ocrConfidence: extraction.overallConfidence,
-      faceScore: null,
+      faceScore: faceMatch.score,
+      faceMatchStatus: faceMatch.status,
       status: "AUTO_PASS",
     });
 

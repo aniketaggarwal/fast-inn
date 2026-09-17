@@ -4,7 +4,7 @@ const { pool } = require("../src/db");
 const s3 = require("../src/storage/s3");
 const { loadOrCreateKeys } = require("../src/keys");
 const { hashPhone } = require("../src/repo");
-const { makeCardBuffer, GOOD_AADHAAR_VALUES, cleanupIssuerData } = require("./helpers");
+const { makeCardBuffer, GOOD_AADHAAR_VALUES, cleanupIssuerData, FACE_A, FACE_B } = require("./helpers");
 
 const app = createApp();
 const trackedGuestIds = [];
@@ -19,15 +19,15 @@ afterAll(async () => {
   await pool.end();
 });
 
-async function uploadAndSubmit({ docType, values, phone, consent = true }) {
-  const docBuffer = await makeCardBuffer(docType, values);
+async function uploadAndSubmit({ docType, values, phone, consent = true, docBuffer: docBufferOverride, selfieBuffer }) {
+  const docBuffer = docBufferOverride || (await makeCardBuffer(docType, values, { faceBuffer: FACE_A }));
 
   const presign = await request(app).post("/kyc/uploads/presign").send({ docType });
   await fetch(presign.body.docUploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: docBuffer });
   await fetch(presign.body.selfieUploadUrl, {
     method: "PUT",
     headers: { "Content-Type": "image/png" },
-    body: docBuffer,
+    body: selfieBuffer || docBuffer,
   });
 
   const submit = await request(app)
@@ -153,6 +153,42 @@ describe("POST /kyc/submit — needs review path", () => {
   it("sends a submission with a bad checksum to NEEDS_REVIEW instead of auto-approving", async () => {
     const values = { ...GOOD_AADHAAR_VALUES(301), idNumber: "111111111111" }; // fails Verhoeff
     const { submit } = await uploadAndSubmit({ docType: "AADHAAR", values, phone: "7000000301" });
+
+    expect(submit.status).toBe(202);
+    expect(submit.body.status).toBe("NEEDS_REVIEW");
+  });
+});
+
+describe("POST /kyc/submit — face match gating", () => {
+  it("sends a submission to NEEDS_REVIEW when the selfie's face doesn't match the ID photo's", async () => {
+    const values = GOOD_AADHAAR_VALUES(501);
+    const docBuffer = await makeCardBuffer("AADHAAR", values, { faceBuffer: FACE_A });
+    const { submit } = await uploadAndSubmit({
+      docType: "AADHAAR",
+      values,
+      phone: "7000000501",
+      docBuffer,
+      selfieBuffer: FACE_B,
+    });
+
+    expect(submit.status).toBe(202);
+    expect(submit.body.status).toBe("NEEDS_REVIEW");
+  });
+
+  it("sends a submission to NEEDS_REVIEW when no face is detected in the selfie", async () => {
+    const values = GOOD_AADHAAR_VALUES(502);
+    const docBuffer = await makeCardBuffer("AADHAAR", values, { faceBuffer: FACE_A });
+    const sharp = require("sharp");
+    const blankSelfie = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#808080" } })
+      .png()
+      .toBuffer();
+    const { submit } = await uploadAndSubmit({
+      docType: "AADHAAR",
+      values,
+      phone: "7000000502",
+      docBuffer,
+      selfieBuffer: blankSelfie,
+    });
 
     expect(submit.status).toBe(202);
     expect(submit.body.status).toBe("NEEDS_REVIEW");
