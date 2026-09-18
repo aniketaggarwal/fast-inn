@@ -14,6 +14,13 @@ const router = Router();
 const SESSION_TTL_SECONDS = 90; // Section 9.4
 const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://localhost:5173";
 
+// WEB_BASE_URL=auto (scripts/demo.js): the QR must point at whatever public
+// address this request arrived on — a phone scanning it can't reach
+// "localhost", and behind a tunnel the hostname is random per run.
+function webBaseUrl(req) {
+  return WEB_BASE_URL === "auto" ? req.publicOrigin || "http://localhost:5173" : WEB_BASE_URL;
+}
+
 // Claims a guest register row can't exist without (Section 5's schema has
 // them NOT NULL) — the check-in consent screen locks these four as
 // mandatory; everything else the credential can disclose (dateOfBirth,
@@ -58,7 +65,7 @@ router.post(
       return res.status(404).json({ error: "booking_not_found" });
     }
 
-    const qrUrl = `${WEB_BASE_URL}/checkin/present?sessionId=${session.id}&nonce=${session.nonce}&hotelId=${session.hotel_id}`;
+    const qrUrl = `${webBaseUrl(req)}/checkin/present?sessionId=${session.id}&nonce=${session.nonce}&hotelId=${session.hotel_id}`;
     const qrImageDataUrl = await QRCode.toDataURL(qrUrl);
 
     res.status(201).json({
@@ -96,7 +103,7 @@ router.get(
     // replaces the page's whole session object, so a QR image only
     // present in the original POST response would vanish the moment the
     // first poll landed.
-    const qrUrl = `${WEB_BASE_URL}/checkin/present?sessionId=${session.id}&nonce=${session.nonce}&hotelId=${session.hotel_id}`;
+    const qrUrl = `${webBaseUrl(req)}/checkin/present?sessionId=${session.id}&nonce=${session.nonce}&hotelId=${session.hotel_id}`;
     const qrImageDataUrl = session.status === "PENDING" ? await QRCode.toDataURL(qrUrl) : null;
 
     res.json({

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { getOrCreateDeviceKey } from "../lib/deviceKey";
 import { saveCredential, savePendingSubmission } from "../lib/wallet";
 import { LivenessCapture } from "../components/LivenessCapture";
+import { DemoIdGenerator } from "../components/DemoIdGenerator";
 
 const DOC_TYPES = [
   { value: "AADHAAR", label: "Aadhaar" },
@@ -217,6 +218,8 @@ export function GuestKycPage() {
             <FilePreviewInput file={selfieFile} onChange={setSelfieFile} label="selfie" />
           )}
         </div>
+
+        <DemoIdGenerator docType={docType} selfieFile={selfieFile} onGenerated={setDocFile} />
 
         <label className="flex items-start gap-2 text-sm text-slate-700">
           <input

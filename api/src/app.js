@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const { apiLimiter } = require("./middleware/rateLimit");
+const { publicOrigin } = require("./middleware/publicOrigin");
 const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
 const hotelRoomsRoutes = require("./routes/hotelRooms");
@@ -17,9 +18,16 @@ const adminRoutes = require("./routes/admin");
 
 function createApp() {
   const app = express();
+  // Behind scripts/demo-gateway.js every request arrives from 127.0.0.1;
+  // without this the rate limiter would count the whole audience as one
+  // client. Opt-in (TRUST_PROXY=1, set by the demo launcher, which also
+  // binds to loopback only) so a directly-exposed service can't have its
+  // limiter bypassed by a spoofed X-Forwarded-For.
+  if (process.env.TRUST_PROXY) app.set("trust proxy", 1);
   app.use(helmet());
   app.use(cors());
   app.use(express.json());
+  app.use(publicOrigin);
   app.use(apiLimiter);
 
   app.use(healthRoutes);

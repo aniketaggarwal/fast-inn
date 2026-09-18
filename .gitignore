@@ -11,3 +11,4 @@ issuer/keys/
 *.pem
 fixtures/
 *.traineddata
+.demo/

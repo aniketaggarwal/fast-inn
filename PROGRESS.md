@@ -1,5 +1,54 @@
 # PROGRESS
 
+## Milestone 8, part 2 — one-command demo, single origin, live link (done)
+
+Goal: demonstrate the whole product from a laptop *and a phone* without
+setup steps, and make it shareable.
+
+- **`npm run demo`** (`scripts/demo.js`): checks Postgres/Redis/MinIO (starts
+  MinIO itself if it's installed but not running), migrates, seeds on first
+  run, builds the web app, starts api + issuer, and prints URLs. Output of
+  each step is captured and shown only on failure. `--live` adds a
+  Cloudflare quick tunnel and prints the public https URL.
+- **Single origin** (`scripts/demo-gateway.js`): one port serves the built web
+  app and proxies `/api`, `/issuer` and the MinIO bucket path. One tunnel is
+  enough, and the browser makes no cross-origin requests. The MinIO route is
+  the subtle part — a presigned PUT's SigV4 signature covers the path and Host
+  header, so the gateway forwards both untouched (routing by bucket name
+  rather than a strippable prefix). Verified by uploading through it.
+- **Request-derived public URLs**: `S3_PUBLIC_ENDPOINT=auto` (issuer) and
+  `WEB_BASE_URL=auto` (api) sign presigned URLs and build the check-in QR
+  against whatever origin the request arrived on — a tunnel hostname is random
+  per run and unknowable at start. Fixed values (dev, docker-compose, tests)
+  behave exactly as before.
+- **Rate limiting behind a proxy**: without `trust proxy`, every user behind
+  the gateway looks like 127.0.0.1 and shares one rate-limit bucket. The demo
+  launcher opts in (`TRUST_PROXY=1`) and binds api/issuer to loopback
+  (`HOST=127.0.0.1`), so a spoofed `X-Forwarded-For` can't reach a directly
+  exposed port; the gateway *overwrites* (not appends) the header.
+- **Demo mode** (`DEMO_MODE=true`, off by default): the login page shows
+  tap-to-fill accounts, and `POST /demo/id-card` renders a synthetic ID (same
+  template the OCR reads, checksum-valid number) carrying the guest's own
+  selfie — nobody demoing on a phone has a fake Aadhaar to photograph. The
+  card still goes through the real pipeline; a test proves quality gate, OCR
+  and face match all accept it. The card composer moved from a test helper
+  into `issuer/src/pipeline/demoCard.js`, so tests and the demo share it.
+
+### Bug found while building it
+
+`scripts/demo.js` first loaded `api/.env` into its own `process.env`. Every
+child inherited `DATABASE_URL`, and dotenv never overrides an already-set
+variable — so the issuer's migration and server would have used the *api's*
+database. Caught because the first `npm run migrate` from the launcher
+failed; fixed by parsing the file instead of loading it.
+
+### Not done
+
+Public hosting on a real cloud provider (managed Postgres/Redis/object
+storage, canvas + WASM in a container) — `demo:live` tunnels the machine
+running the demo instead. Playwright happy path and an architecture diagram
+are still open.
+
 ## Milestone 8, part 1 — reliability + a real-feeling booking site (done)
 
 Started on Milestone 8 (hardening + demo) with a specific steer: make the

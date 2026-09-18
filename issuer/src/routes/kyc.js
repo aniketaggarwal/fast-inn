@@ -27,8 +27,8 @@ router.post(
     const docKey = s3.newObjectKey("kyc/docs", "png");
     const selfieKey = s3.newObjectKey("kyc/selfies", "png");
     const [docUploadUrl, selfieUploadUrl] = await Promise.all([
-      s3.presignedPutUrl(docKey, "image/png"),
-      s3.presignedPutUrl(selfieKey, "image/png"),
+      s3.presignedPutUrl(docKey, "image/png", 300, req.publicOrigin),
+      s3.presignedPutUrl(selfieKey, "image/png", 300, req.publicOrigin),
     ]);
 
     res.json({ docKey, docUploadUrl, selfieKey, selfieUploadUrl });

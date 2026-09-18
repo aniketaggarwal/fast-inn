@@ -28,8 +28,8 @@ router.get(
         faceScore: s.face_score,
         faceMatchStatus: s.face_match_status,
         createdAt: s.created_at,
-        docImageUrl: s.doc_object_key ? await s3.presignedGetUrl(s.doc_object_key) : null,
-        selfieImageUrl: s.selfie_object_key ? await s3.presignedGetUrl(s.selfie_object_key) : null,
+        docImageUrl: s.doc_object_key ? await s3.presignedGetUrl(s.doc_object_key, 60, req.publicOrigin) : null,
+        selfieImageUrl: s.selfie_object_key ? await s3.presignedGetUrl(s.selfie_object_key, 60, req.publicOrigin) : null,
       }))
     );
 

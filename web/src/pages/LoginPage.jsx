@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
+import { api } from "../lib/api";
+
+const DEMO_ACCOUNTS = [
+  { label: "Guest", email: "guest1@hotelverify.test" },
+  { label: "Hotel staff", email: "staff.ramaiah@hotelverify.test" },
+  { label: "Admin", email: "admin@hotelverify.test" },
+];
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -11,6 +18,11 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [demo, setDemo] = useState(false);
+
+  useEffect(() => {
+    api.health().then((h) => setDemo(Boolean(h.demo))).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -76,6 +88,27 @@ export function LoginPage() {
           {busy ? "Please wait…" : mode === "login" ? "Log in" : "Register"}
         </button>
       </form>
+
+      {demo && mode === "login" && (
+        <div className="mt-6 rounded-lg border border-brand-200 bg-brand-50 p-3">
+          <p className="text-xs font-medium text-brand-900">Demo accounts — tap to fill</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {DEMO_ACCOUNTS.map((a) => (
+              <button
+                key={a.email}
+                type="button"
+                onClick={() => {
+                  setEmail(a.email);
+                  setPassword("Password123!");
+                }}
+                className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs font-medium text-brand-800 hover:bg-brand-100"
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <button
         onClick={() => setMode(mode === "login" ? "register" : "login")}

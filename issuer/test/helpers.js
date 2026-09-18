@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
-const { renderIdCardSVG, CARD_HEIGHT } = require("../src/pipeline/template");
+const { renderCardWithFace } = require("../src/pipeline/demoCard");
 const { appendVerhoeffCheckDigit } = require("../src/pipeline/validators");
 const { pool } = require("../src/db");
 const s3 = require("../src/storage/s3");
@@ -30,22 +29,7 @@ const FACE_B = fs.readFileSync(path.join(FACES_DIR, "genuine-b.jpg"));
 // (quality gate, OCR/extraction) relies on the plain card's exact
 // brightness/content-area metrics, which a bright face photo would skew.
 async function makeCardBuffer(docType, values, { faceBuffer = null } = {}) {
-  const svg = renderIdCardSVG(docType, values);
-  const card = sharp(Buffer.from(svg)).png();
-  if (!faceBuffer) return card.toBuffer();
-
-  // Neutral grey margin, not the card's own near-white background: the
-  // card's background is already close to quality.js's BRIGHTNESS_MAX
-  // (~219 of 220) by itself, so extending it with more near-white area
-  // pushes brightness over the top and fails the quality gate on a
-  // perfectly good image. A mid-grey margin keeps the overall average
-  // where it was.
-  const face = await sharp(faceBuffer).resize(180, 180).png().toBuffer();
-  return card
-    .extend({ bottom: 200, background: "#808080" })
-    .composite([{ input: face, top: CARD_HEIGHT + 10, left: 20 }])
-    .png()
-    .toBuffer();
+  return renderCardWithFace(docType, values, faceBuffer);
 }
 
 function validAadhaarNumber(seed = 1) {

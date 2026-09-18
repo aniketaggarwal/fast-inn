@@ -17,6 +17,38 @@ which are not available to student projects. Statutory compliance features
 (Form C, DPDP Act alignment) are illustrative and have not been legally
 reviewed.
 
+## Run the demo
+
+With Postgres, Redis and MinIO running (`docker compose up -d postgres redis minio`, or the Homebrew equivalents):
+
+```bash
+npm install
+npm run demo          # http://localhost:8080
+npm run demo:live     # same, plus a public https link (needs `brew install cloudflared`)
+```
+
+`npm run demo` migrates, seeds (first run only; `--reseed` wipes it), builds
+the web app, starts `api` + `issuer`, and puts everything behind one address
+(`scripts/demo-gateway.js`) — so a single tunnel or LAN address is all a
+second device needs, and there's no CORS to configure. The login page shows
+tap-to-fill demo accounts, and the KYC page can generate a synthetic test ID
+carrying your own selfie (the issuer's `DEMO_MODE`), so a demo needs no
+prepared files. Logs are in `.demo/logs/`.
+
+**Use `demo:live` for a phone.** The live camera (liveness check) and the
+device signing key both need a secure context, which plain `http://<lan-ip>`
+isn't — the tunnel's https is. Anyone with the link can use it, and the demo
+accounts share a known password, so close it (Ctrl+C) when you're done.
+
+Walkthrough that shows every moving part (~5 min):
+
+1. **Guest** — browse hotels without logging in, book a room (log in as the *Guest* chip).
+2. **Verify identity** — capture a live selfie (liveness prompt), *Generate test ID*, submit. Quality check → OCR → checksum → face match → signed credential in your wallet; the ID image is deleted.
+3. **Staff** (`staff.ramaiah`) — Dashboard → *Check in* on the booking; a QR appears.
+4. **Guest** — open the QR link (or scan it with the phone), choose which claims to share, approve. The desk screen flips to VERIFIED showing only what was disclosed.
+5. **Staff** — *Complete check-in*, then *Register* (ID last-4 only) — pick nationality `US` in step 2 to see a Form C row and CSV export.
+6. **Admin** — *Admin panel* → audit log; revoke the credential from *Register & revoke*; a new check-in with it now fails with `credential_revoked`.
+
 ## Architecture
 
 ```

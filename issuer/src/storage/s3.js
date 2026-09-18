@@ -25,15 +25,31 @@ const internalClient = new S3Client({
   },
 });
 
-const publicClient = new S3Client({
-  endpoint: process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT || "http://localhost:9000",
-  region: process.env.S3_REGION || "us-east-1",
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY || "hotelverify",
-    secretAccessKey: process.env.S3_SECRET_KEY || "hotelverify_dev_only",
-  },
-});
+function makePublicClient(endpoint) {
+  return new S3Client({
+    endpoint,
+    region: process.env.S3_REGION || "us-east-1",
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY || "hotelverify",
+      secretAccessKey: process.env.S3_SECRET_KEY || "hotelverify_dev_only",
+    },
+  });
+}
+
+// S3_PUBLIC_ENDPOINT=auto (the one-command demo, scripts/demo.js): the
+// public origin isn't known until a request arrives — behind a tunnel it's
+// a random https hostname — so each presigned URL is signed against the
+// origin the caller actually reached us on (see middleware/publicOrigin.js).
+// A fixed S3_PUBLIC_ENDPOINT (dev, docker-compose, tests) behaves as before.
+const fixedPublicEndpoint = process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT || "http://localhost:9000";
+const publicClients = new Map();
+
+function publicClientFor(origin) {
+  const endpoint = fixedPublicEndpoint === "auto" && origin ? origin : fixedPublicEndpoint === "auto" ? "http://localhost:9000" : fixedPublicEndpoint;
+  if (!publicClients.has(endpoint)) publicClients.set(endpoint, makePublicClient(endpoint));
+  return publicClients.get(endpoint);
+}
 
 async function ensureBucket() {
   try {
@@ -50,17 +66,17 @@ function newObjectKey(prefix, extension) {
 // Never make the bucket public, never hand out a permanent URL (Section
 // 9.6) — every access is a short-lived signed URL for one specific
 // operation.
-async function presignedPutUrl(key, contentType, expiresInSeconds = 300) {
+async function presignedPutUrl(key, contentType, expiresInSeconds = 300, origin = null) {
   return getSignedUrl(
-    publicClient,
+    publicClientFor(origin),
     new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }),
     { expiresIn: expiresInSeconds }
   );
 }
 
 // 60s per Section 9.6, and only ever generated for an authorised reviewer.
-async function presignedGetUrl(key, expiresInSeconds = 60) {
-  return getSignedUrl(publicClient, new GetObjectCommand({ Bucket: BUCKET, Key: key }), {
+async function presignedGetUrl(key, expiresInSeconds = 60, origin = null) {
+  return getSignedUrl(publicClientFor(origin), new GetObjectCommand({ Bucket: BUCKET, Key: key }), {
     expiresIn: expiresInSeconds,
   });
 }

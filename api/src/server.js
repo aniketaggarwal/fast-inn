@@ -9,7 +9,7 @@ const port = process.env.PORT || 4000;
   console.log("redis connected");
 
   const app = createApp();
-  app.listen(port, () => {
+  app.listen(port, process.env.HOST || undefined, () => {
     console.log(`api listening on :${port}`);
   });
 })().catch((err) => {

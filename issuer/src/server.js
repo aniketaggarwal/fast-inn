@@ -12,7 +12,7 @@ const port = process.env.PORT || 4001;
   await ensureBucket();
 
   const app = createApp();
-  app.listen(port, () => {
+  app.listen(port, process.env.HOST || undefined, () => {
     console.log(`issuer listening on :${port}`);
   });
 })().catch((err) => {

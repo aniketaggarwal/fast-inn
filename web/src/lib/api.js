@@ -169,6 +169,23 @@ export const api = {
   kycPresign: (docType) => issuerRequest("/kyc/uploads/presign", { method: "POST", body: { docType } }),
   kycSubmit: (payload) => issuerRequest("/kyc/submit", { method: "POST", body: payload }),
   kycStatus: (submissionId) => issuerRequest(`/kyc/${submissionId}/status`),
+  // Demo mode only (issuer DEMO_MODE=true, set by `npm run demo`).
+  demoStatus: () => issuerRequest("/demo/status"),
+  async demoIdCard(payload) {
+    const res = await fetch(`${ISSUER_BASE}/demo/id-card`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const error = new Error(data.error || `request_failed_${res.status}`);
+      error.body = data;
+      throw error;
+    }
+    return res.blob();
+  },
+  health: () => request("/health", { auth: false }),
   kycLivenessCheck: (frames) => issuerRequest("/kyc/liveness/check", { method: "POST", body: { frames } }),
 
   async uploadToPresignedUrl(url, blob) {
