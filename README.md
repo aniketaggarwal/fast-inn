@@ -48,24 +48,35 @@ npm run dev:web      # http://localhost:5173 (new terminal)
 ```
 
 `web/` is a guest booking flow (browse hotels → check availability → book →
-manage bookings), a KYC verification flow (`/kyc` → `/wallet`, using a
-synthetic ID from `fixtures/fake-ids/` after running `make-fake-ids`; the
-selfie step is a live camera capture with a liveness challenge by default,
-with a "no camera? upload a photo instead" fallback), a hotel staff
-dashboard (rooms + bookings for their own hotel, plus a "Check in" action
-that starts a live QR check-in session), a guest check-in consent screen
-(`/checkin/present` — reached via the QR's own URL, where the guest picks
-which credential claims to share), an admin KYC review queue
-(`/admin/review`, showing the doc image, the selfie image, and the
-face-match score side by side), a hotel guest register with Form C export
-(`/hotel/register`, plus a "Check out" action on the dashboard), a
-guest-facing "my data" screen (`/my-data` — what's been shared, with whom,
-when; withdraw consent; delete account), and a platform-admin panel
-(`/admin/panel` — hotels, the audit log, and a cross-hotel register view
-with a revoke-credential action) — all gated by login. Self-registration
-at `/login` always creates a GUEST account; log in as
-`staff.ramaiah@hotelverify.test` / `staff.mgroad@hotelverify.test` for the
-staff side, `admin@hotelverify.test` for the review queue and admin panel.
+manage bookings — `/hotels` and `/hotels/:id` are public, no login needed
+to browse; login is only required at "Book", and you're returned to the
+same hotel page afterward), a KYC verification flow (`/kyc` → `/wallet`,
+using a synthetic ID from `fixtures/fake-ids/` after running
+`make-fake-ids`; the selfie step is a live camera capture with a liveness
+challenge by default, with a "no camera? upload a photo instead"
+fallback), a hotel staff dashboard (rooms + bookings for their own hotel,
+plus "Check in"/"Check out" actions and a live QR check-in session), a
+guest check-in consent screen (`/checkin/present` — reached via the QR's
+own URL, where the guest picks which credential claims to share), an
+admin KYC review queue (`/admin/review`, showing the doc image, the
+selfie image, and the face-match score side by side), a hotel guest
+register with Form C export (`/hotel/register`), a guest-facing "my data"
+screen (`/my-data` — what's been shared, with whom, when; withdraw
+consent; delete account), and a platform-admin panel (`/admin/panel` —
+hotels, the audit log, and a cross-hotel register view with a
+revoke-credential action). Self-registration at `/login` always creates a
+GUEST account; log in as `staff.ramaiah@hotelverify.test` /
+`staff.mgroad@hotelverify.test` for the staff side (only those two of the
+eight seeded hotels have a demo staff login — the rest exist for the
+browse/book flow), `admin@hotelverify.test` for the review queue and
+admin panel.
+
+API requests auto-retry once through a refresh token on a 401 (access
+tokens last 15 minutes) before dropping the session — see
+`web/src/lib/api.js`. Every route is also rate-limited
+(`express-rate-limit`, both `api/` and `issuer/`); the limiter is
+disabled under `NODE_ENV=test` so the test suites' legitimate
+many-logins-per-run aren't treated as abuse.
 
 Face matching (`issuer/src/pipeline/facematch.js`) uses
 `@vladmandic/face-api` on its WASM backend, not the native `tfjs-node`
@@ -101,7 +112,9 @@ comment has an example line). ID documents/selfies don't need a separate
 purge step: they're already deleted from storage immediately at
 credential issuance (Milestone 4), well inside the retention window.
 
-Seeded accounts (password for all: `Password123!`):
+`npm run seed` populates 8 hotels across 7 cities (25 rooms total) so the
+browse flow has something to actually browse — see `scripts/seed.js` for
+the full list. Seeded accounts (password for all: `Password123!`):
 
 | Email | Role |
 |---|---|

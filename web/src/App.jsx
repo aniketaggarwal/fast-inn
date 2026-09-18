@@ -26,22 +26,11 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route
-              path="/hotels"
-              element={
-                <ProtectedRoute roles={["GUEST"]}>
-                  <GuestHotelsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/hotels/:hotelId"
-              element={
-                <ProtectedRoute roles={["GUEST"]}>
-                  <GuestHotelDetailPage />
-                </ProtectedRoute>
-              }
-            />
+            {/* Public — a real booking site lets you browse before you sign
+                in; login is only required at the "Book" action itself
+                (GuestHotelDetailPage prompts for it inline). */}
+            <Route path="/hotels" element={<GuestHotelsPage />} />
+            <Route path="/hotels/:hotelId" element={<GuestHotelDetailPage />} />
             <Route
               path="/bookings"
               element={

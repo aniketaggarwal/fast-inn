@@ -7,6 +7,7 @@ const { matchFaces } = require("../pipeline/facematch");
 const { issueCredentialForSubmission, deleteSubmissionDocuments } = require("../pipeline/issue");
 const s3 = require("../storage/s3");
 const repo = require("../repo");
+const { kycLimiter } = require("../middleware/rateLimit");
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.post(
 
 router.post(
   "/kyc/submit",
+  kycLimiter,
   asyncHandler(async (req, res) => {
     const { phone, docType, docKey, selfieKey, consent, holderPublicKeyJwk } = req.body || {};
 

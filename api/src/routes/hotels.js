@@ -18,10 +18,31 @@ router.get(
       where += ` AND city ILIKE $${params.length}`;
     }
     const result = await pool.query(
-      `SELECT id, name, city, address FROM hotels ${where} ORDER BY name`,
+      `SELECT h.id, h.name, h.city, h.address, h.description, h.star_rating, h.amenities,
+              MIN(r.base_price) AS from_price
+       FROM hotels h
+       LEFT JOIN rooms r ON r.hotel_id = h.id
+       ${where}
+       GROUP BY h.id
+       ORDER BY h.name`,
       params
     );
     res.json({ hotels: result.rows });
+  })
+);
+
+router.get(
+  "/hotels/:hotelId",
+  asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT id, name, city, address, description, star_rating, amenities
+       FROM hotels WHERE id = $1 AND status = 'ACTIVE'`,
+      [req.params.hotelId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    res.json({ hotel: result.rows[0] });
   })
 );
 

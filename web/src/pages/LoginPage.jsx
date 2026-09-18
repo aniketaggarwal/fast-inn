@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
 
 export function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,7 +18,14 @@ export function LoginPage() {
     setBusy(true);
     try {
       const user = mode === "login" ? await login(email, password) : await register(email, password);
-      navigate(user.role === "GUEST" ? "/hotels" : "/dashboard");
+      // Sent here from "log in to book" on a hotel page — go back there
+      // instead of always landing on the plain hotel list.
+      const returnTo = location.state?.from;
+      if (user.role === "GUEST" && returnTo) {
+        navigate(returnTo);
+      } else {
+        navigate(user.role === "GUEST" ? "/hotels" : "/dashboard");
+      }
     } catch (err) {
       setError(err.body?.error || err.message);
     } finally {

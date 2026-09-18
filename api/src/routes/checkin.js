@@ -7,6 +7,7 @@ const { tenantScope } = require("../middleware/tenant");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { verifyGuestPresentation, VerificationError } = require("../services/verifier");
 const { logAudit } = require("../repo/audit");
+const { presentationLimiter } = require("../middleware/rateLimit");
 
 const router = Router();
 
@@ -125,6 +126,7 @@ router.get(
 // lookup.
 router.post(
   "/checkin/sessions/:id/present",
+  presentationLimiter,
   asyncHandler(async (req, res) => {
     const { presentation, hotelId } = req.body || {};
     if (typeof presentation !== "string" || typeof hotelId !== "string") {

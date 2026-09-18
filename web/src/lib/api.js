@@ -5,18 +5,79 @@ function getToken() {
   return localStorage.getItem("accessToken");
 }
 
-async function baseRequest(base, path, { method = "GET", body, auth = true } = {}) {
+function clearSession() {
+  localStorage.removeItem("user");
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+  // AuthContext holds `user` in React state, not read fresh from
+  // localStorage on every render — a plain module like this one can't
+  // reach into that state directly, so it announces the logout instead.
+  // AuthContext listens for this to clear itself and the UI to actually
+  // reflect it, instead of localStorage silently going stale under a
+  // still-"logged in" screen.
+  window.dispatchEvent(new Event("auth:logout"));
+}
+
+// Access tokens last 15 minutes (api/src/utils/jwt.js); refresh tokens 7
+// days. Without this, every request made after the access token expires
+// would just 401 until the user manually logged out and back in — a real
+// reliability gap for anyone actually using the app for more than 15
+// minutes at a stretch. `inFlightRefresh` collapses concurrent 401s (e.g.
+// several requests firing at once) into a single refresh call rather than
+// racing multiple refreshes against the same refresh token.
+let inFlightRefresh = null;
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem("refreshToken");
+  if (!refreshToken) return null;
+
+  if (!inFlightRefresh) {
+    inFlightRefresh = fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        return data?.accessToken || null;
+      })
+      .catch(() => null)
+      .finally(() => {
+        inFlightRefresh = null;
+      });
+  }
+
+  const accessToken = await inFlightRefresh;
+  if (accessToken) {
+    localStorage.setItem("accessToken", accessToken);
+  }
+  return accessToken;
+}
+
+async function doFetch(base, path, method, headers, body) {
+  return fetch(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+}
+
+async function baseRequest(base, path, { method = "GET", body, auth = true, _retried = false } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (auth) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const res = await doFetch(base, path, method, headers, body);
+
+  // Retried once, and only for requests that actually carried a token —
+  // an anonymous 401 (e.g. a genuinely wrong password) means there's
+  // nothing to refresh.
+  if (res.status === 401 && auth && headers.Authorization && !_retried) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      return baseRequest(base, path, { method, body, auth, _retried: true });
+    }
+    clearSession();
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -38,6 +99,7 @@ export const api = {
   login: (email, password) => request("/auth/login", { method: "POST", body: { email, password }, auth: false }),
 
   listHotels: (city) => request(`/hotels${city ? `?city=${encodeURIComponent(city)}` : ""}`, { auth: false }),
+  getHotel: (hotelId) => request(`/hotels/${hotelId}`, { auth: false }),
   availability: (hotelId, from, to) =>
     request(`/hotels/${hotelId}/availability?from=${from}&to=${to}`, { auth: false }),
 
@@ -59,12 +121,21 @@ export const api = {
   },
   // A plain <a href> can't carry the Authorization header, so this fetches
   // the CSV itself and hands back a Blob for the caller to save — same
-  // auth path as every other request, not a signed/token-in-URL workaround.
+  // auth path as every other request (including the refresh-on-401 retry),
+  // not a signed/token-in-URL workaround.
   async downloadFormCCsv() {
-    const token = getToken();
-    const res = await fetch(`${API_BASE}/hotel/exports/form-c.csv`, {
+    let token = getToken();
+    let res = await fetch(`${API_BASE}/hotel/exports/form-c.csv`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+    if (res.status === 401 && token) {
+      token = await refreshAccessToken();
+      if (token) {
+        res = await fetch(`${API_BASE}/hotel/exports/form-c.csv`, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        clearSession();
+      }
+    }
     if (!res.ok) throw new Error(`export_failed_${res.status}`);
     return res.blob();
   },

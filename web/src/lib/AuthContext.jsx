@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { api } from "./api";
 
 const AuthContext = createContext(null);
@@ -39,6 +39,17 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     setUser(null);
+  }, []);
+
+  // api.js can't reach this component's state directly when a refresh
+  // token turns out to be expired/invalid too — it clears localStorage
+  // and dispatches this event instead, so the UI actually drops back to
+  // logged-out rather than localStorage going stale under a still-shown
+  // "logged in" screen.
+  useEffect(() => {
+    const onAuthLogout = () => setUser(null);
+    window.addEventListener("auth:logout", onAuthLogout);
+    return () => window.removeEventListener("auth:logout", onAuthLogout);
   }, []);
 
   return <AuthContext.Provider value={{ user, login, register, logout }}>{children}</AuthContext.Provider>;

@@ -1,5 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
+import { BedIcon } from "./icons";
+
+const linkClass = "text-slate-600 hover:text-slate-900";
 
 export function NavBar() {
   const { user, logout } = useAuth();
@@ -12,46 +15,51 @@ export function NavBar() {
 
   return (
     <nav className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <Link to="/" className="text-lg font-semibold text-slate-900">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+        <Link to="/" className="flex items-center gap-1.5 text-lg font-bold text-slate-900">
+          <BedIcon className="h-5 w-5 text-brand-600" />
           HotelVerify
         </Link>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          {/* Browsing hotels needs no login — matches how the routes
+              themselves are public (App.jsx, api/src/routes/hotels.js). */}
+          {(!user || user.role === "GUEST") && (
+            <Link to="/hotels" className={linkClass}>
+              Browse hotels
+            </Link>
+          )}
           {user?.role === "GUEST" && (
             <>
-              <Link to="/hotels" className="text-slate-600 hover:text-slate-900">
-                Browse hotels
-              </Link>
-              <Link to="/bookings" className="text-slate-600 hover:text-slate-900">
+              <Link to="/bookings" className={linkClass}>
                 My bookings
               </Link>
-              <Link to="/kyc" className="text-slate-600 hover:text-slate-900">
+              <Link to="/kyc" className={linkClass}>
                 Verify identity
               </Link>
-              <Link to="/wallet" className="text-slate-600 hover:text-slate-900">
+              <Link to="/wallet" className={linkClass}>
                 Wallet
               </Link>
-              <Link to="/my-data" className="text-slate-600 hover:text-slate-900">
+              <Link to="/my-data" className={linkClass}>
                 My data
               </Link>
             </>
           )}
           {(user?.role === "HOTEL_STAFF" || user?.role === "HOTEL_ADMIN") && (
             <>
-              <Link to="/dashboard" className="text-slate-600 hover:text-slate-900">
+              <Link to="/dashboard" className={linkClass}>
                 Dashboard
               </Link>
-              <Link to="/hotel/register" className="text-slate-600 hover:text-slate-900">
+              <Link to="/hotel/register" className={linkClass}>
                 Register
               </Link>
             </>
           )}
           {user?.role === "PLATFORM_ADMIN" && (
             <>
-              <Link to="/admin/review" className="text-slate-600 hover:text-slate-900">
+              <Link to="/admin/review" className={linkClass}>
                 KYC review
               </Link>
-              <Link to="/admin/panel" className="text-slate-600 hover:text-slate-900">
+              <Link to="/admin/panel" className={linkClass}>
                 Admin panel
               </Link>
             </>
@@ -69,7 +77,7 @@ export function NavBar() {
               </button>
             </>
           ) : (
-            <Link to="/login" className="rounded bg-slate-900 px-3 py-1.5 text-white hover:bg-slate-700">
+            <Link to="/login" className="rounded bg-brand-600 px-3 py-1.5 text-white hover:bg-brand-700">
               Log in
             </Link>
           )}

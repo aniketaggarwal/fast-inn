@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const { apiLimiter } = require("./middleware/rateLimit");
 const healthRoutes = require("./routes/health");
 const kycRoutes = require("./routes/kyc");
 const reviewRoutes = require("./routes/review");
@@ -16,6 +17,7 @@ function createApp() {
   // check's multiple base64-encoded camera frames (Section 9.3) don't fit
   // in it.
   app.use(express.json({ limit: "5mb" }));
+  app.use(apiLimiter);
 
   app.use(healthRoutes);
   app.use(kycRoutes);

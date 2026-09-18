@@ -3,8 +3,10 @@ const { pool } = require("../db");
 const { hashPassword, verifyPassword } = require("../utils/password");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/jwt");
 const { asyncHandler } = require("../utils/asyncHandler");
+const { authLimiter } = require("../middleware/rateLimit");
 
 const router = Router();
+router.use(authLimiter);
 
 function publicUser(row) {
   return { id: row.id, email: row.email, role: row.role, hotelId: row.hotel_id };

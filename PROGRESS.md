@@ -1,5 +1,94 @@
 # PROGRESS
 
+## Milestone 8, part 1 — reliability + a real-feeling booking site (done)
+
+Started on Milestone 8 (hardening + demo) with a specific steer: make the
+guest browse/book flow actually look and feel like a normal booking site
+rather than a form-testing harness, fix a couple of real reliability
+gaps, and expand the demo dataset. Playwright/architecture-diagram/deploy
+(the rest of Milestone 8) are still ahead — this entry covers what's done
+so far.
+
+### What works
+
+- **8 hotels across 7 cities** (`scripts/seed.js`), up from 2 — Bengaluru
+  (both original staffed hotels, unchanged), Mumbai, Delhi, Goa, Jaipur,
+  Chennai, Kochi. Every hotel now has a `description`, a `star_rating`
+  (1-5), and an `amenities` list (migration
+  `1735400000000_hotel-marketing-fields`); names/descriptions are
+  original and fictional, the same reasoning as the synthetic ID cards —
+  a real chain's name or a borrowed stock photo would misrepresent an
+  actual property. 25 rooms total, varied types/pricing by city. Only the
+  two original hotels get a demo `HOTEL_STAFF` login; the rest exist for
+  the browse/book flow, not the full staff-dashboard demo.
+- **Public browsing, login only at "Book"**: `/hotels` and
+  `/hotels/:hotelId` are no longer behind `ProtectedRoute` — the backend
+  routes were already public (`api/src/routes/hotels.js`), only the
+  frontend was gating them. `HomePage.jsx` now sends a logged-out visitor
+  to `/hotels` instead of straight to `/login`. Clicking "Book" while
+  logged out sends you to `/login` with a `state.from`, and `LoginPage.jsx`
+  now returns you to that exact hotel page after login instead of always
+  landing on the plain hotel list — verified in the browser end to end
+  (anonymous browse → click Book → login → land back on the same hotel,
+  already-selected dates intact → book successfully).
+- **A real listings-page look**: `HotelBanner.jsx` renders a deterministic
+  gradient (hashed from the hotel's own name, so it's stable without
+  storing anything) instead of a missing-image placeholder or a borrowed
+  stock photo; `StarRating.jsx` and a dozen hand-rolled amenity icons
+  (`components/icons.jsx` — no new icon-library dependency for a dozen
+  glyphs) round out hotel cards and the hotel detail page. A small brand
+  color scale and Inter (Google Fonts) replace the plain default Tailwind
+  look (`tailwind.config.js`, `index.html`).
+- **JWT auto-refresh on 401** (`web/src/lib/api.js`): access tokens last
+  15 minutes and there was previously no refresh logic at all — every
+  request after expiry just failed until the user manually logged back
+  in. `baseRequest` now retries once through `POST /auth/refresh` on a
+  401, collapsing concurrent 401s into a single in-flight refresh call
+  rather than racing several against the same refresh token. On a refresh
+  failure it clears the session and fires a DOM `auth:logout` event that
+  `AuthContext` listens for — the plain `api.js` module can't reach that
+  component's React state directly, and without this the UI would show
+  localStorage's stale "logged in" state instead of actually dropping to
+  logged-out. Verified both paths live in the browser: a garbage access
+  token with a real refresh token transparently recovers (confirmed the
+  token in localStorage actually changed); a garbage refresh token too
+  cleanly redirects to `/login`.
+- **Rate limiting** (`api/src/middleware/rateLimit.js`,
+  `issuer/src/middleware/rateLimit.js`, `express-rate-limit`): a generous
+  global backstop on every route, a stricter limit on `/auth/*`
+  (credential-stuffing target), the public
+  `/checkin/sessions/:id/present` (Section 9.4's replay-defence surface),
+  and `/kyc/submit` (the most expensive route in the issuer — real
+  OCR/face-match inference per call). Skipped entirely when
+  `NODE_ENV=test` (vitest sets this automatically) so the test suites'
+  legitimate dozens-of-logins-per-run aren't mistaken for abuse — verified
+  the skip actually works (full suites green) *and* that the limiter
+  itself actually fires outside test mode (hammered `/auth/login` with
+  curl, got exactly 20 successes then 429s).
+
+### Bugs found and fixed while building this
+
+- **The global rate limit's first value (300 req / 5 min) was too tight
+  for real interactive use**, not just abuse — caught by tripping it
+  myself during normal browser-based testing. React StrictMode
+  double-invokes effects in development, and a single hotel-detail page
+  view fires several requests at once (hotel details + availability),
+  so normal navigation burns through a tight budget fast. Raised to
+  1000/5min — still a real backstop against sustained scripted abuse
+  (200 req/min sustained trips it within a minute), just not one that
+  fires on ordinary browsing.
+- Tailwind theme changes (`tailwind.config.js` — the new brand colors and
+  font) didn't take effect on the already-running Vite dev server; had to
+  restart it. Config-file changes aren't picked up by the same
+  file-watching that handles component edits — worth remembering before
+  concluding a style change "isn't working."
+
+### What's deferred to the rest of Milestone 8
+
+Rate limits/error states/bigger seed data are done; still open: empty
+states on the less-visited pages, a Playwright happy-path test, an
+architecture diagram, README polish, and a deployed URL.
+
 ## Milestone 7 — Compliance (done)
 
 Deliverable per the build spec: guest register view + Form C export,
