@@ -10,11 +10,7 @@ and issuer are healthy.
 
 `render.yaml` is a Blueprint: a Postgres database + one Docker web service.
 
-1. **Put the repo on GitHub** (this repo has no git remote yet):
-   ```bash
-   git remote add origin git@github.com:<you>/hotelverify.git
-   git push -u origin main
-   ```
+1. The repo is at <https://github.com/aniketaggarwal/fast-inn> (`origin/main`).
 2. On [render.com](https://render.com): **New + → Blueprint**, pick the repo, **Apply**.
 3. First build takes several minutes (native deps, MinIO download). When it's
    live, open the service URL. Get the shared demo password from the service's
