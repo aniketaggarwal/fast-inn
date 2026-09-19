@@ -18,10 +18,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [demo, setDemo] = useState(false);
+  const [demo, setDemo] = useState(null);
 
   useEffect(() => {
-    api.health().then((h) => setDemo(Boolean(h.demo))).catch(() => {});
+    api.health().then((h) => setDemo(h.demo ? { password: h.demoPassword } : null)).catch(() => {});
   }, []);
 
   const handleSubmit = async (e) => {
@@ -99,7 +99,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() => {
                   setEmail(a.email);
-                  setPassword("Password123!");
+                  setPassword(demo.password);
                 }}
                 className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs font-medium text-brand-800 hover:bg-brand-100"
               >

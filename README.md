@@ -40,6 +40,9 @@ device signing key both need a secure context, which plain `http://<lan-ip>`
 isn't — the tunnel's https is. Anyone with the link can use it, and the demo
 accounts share a known password, so close it (Ctrl+C) when you're done.
 
+**Hosting it for real:** one container runs the whole stack — see [docs/DEPLOY.md](docs/DEPLOY.md)
+(`render.yaml` Blueprint included; `docker compose --profile app up --build` runs the same image locally).
+
 Walkthrough that shows every moving part (~5 min):
 
 1. **Guest** — browse hotels without logging in, book a room (log in as the *Guest* chip).

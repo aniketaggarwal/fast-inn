@@ -10,12 +10,12 @@
 // Flags: --live (public tunnel)  --reseed (wipe + reseed demo data)
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
-const net = require("net");
 const os = require("os");
 const path = require("path");
 const dotenv = require("dotenv");
 const { Pool } = require("pg");
 const { startGateway } = require("./demo-gateway");
+const { portOpen, waitFor: waitForRaw, healthy, createSupervisor } = require("./lib/proc");
 
 const ROOT = path.join(__dirname, "..");
 const LOG_DIR = path.join(ROOT, ".demo", "logs");
@@ -32,45 +32,21 @@ const BUCKET = process.env.S3_BUCKET || "hotelverify-kyc";
 const live = process.argv.includes("--live");
 const reseed = process.argv.includes("--reseed");
 
-const children = [];
 const step = (msg) => console.log(`\n▸ ${msg}`);
 const fail = (msg) => {
   console.error(`\n✗ ${msg}\n`);
   shutdown(1);
 };
+const supervisor = createSupervisor({ logDir: LOG_DIR, onFatal: fail });
+const { launch } = supervisor;
+const waitFor = (check, label, timeoutMs = 60000) => waitForRaw(check, label, timeoutMs, (m) => fail(`${m} — see ${LOG_DIR}`));
 
 function shutdown(code = 0) {
-  for (const child of children) child.kill("SIGTERM");
+  supervisor.killAll();
   process.exit(code);
 }
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
-
-function portOpen(port, host = "127.0.0.1") {
-  return new Promise((resolve) => {
-    const socket = net.connect(port, host);
-    socket.once("connect", () => (socket.destroy(), resolve(true)));
-    socket.once("error", () => resolve(false));
-    socket.setTimeout(1000, () => (socket.destroy(), resolve(false)));
-  });
-}
-
-async function waitFor(check, label, timeoutMs = 60000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await check()) return;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  fail(`${label} did not become ready in ${timeoutMs / 1000}s — see ${LOG_DIR}`);
-}
-
-const healthy = (port) => async () => {
-  try {
-    return (await fetch(`http://127.0.0.1:${port}/health`)).ok;
-  } catch {
-    return false;
-  }
-};
 
 // Output is captured and only shown if the step fails — a clean run should
 // read like a checklist, not a wall of migration/vite logs.
@@ -80,16 +56,6 @@ function run(cmd, args, opts = {}) {
     console.error((r.stdout || "") + (r.stderr || ""));
     fail(`\`${cmd} ${args.join(" ")}\` failed`);
   }
-}
-
-function launch(name, cmd, args, { cwd = ROOT, env = {} } = {}) {
-  const out = fs.openSync(path.join(LOG_DIR, `${name}.log`), "w");
-  const child = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", out, out] });
-  child.on("exit", (code) => {
-    if (code) fail(`${name} exited with code ${code} — see .demo/logs/${name}.log`);
-  });
-  children.push(child);
-  return child;
 }
 
 function lanAddress() {
@@ -169,7 +135,7 @@ async function main() {
     }
     step("Opening public tunnel");
     const tunnel = spawn("cloudflared", ["tunnel", "--no-autoupdate", "--url", `http://localhost:${GATEWAY_PORT}`], { stdio: ["ignore", "pipe", "pipe"] });
-    children.push(tunnel);
+    supervisor.track(tunnel);
     let announced = false;
     const scan = (chunk) => {
       const match = !announced && /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(chunk.toString());

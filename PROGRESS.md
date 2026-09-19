@@ -42,12 +42,33 @@ variable — so the issuer's migration and server would have used the *api's*
 database. Caught because the first `npm run migrate` from the launcher
 failed; fixed by parsing the file instead of loading it.
 
-### Not done
+- **Hosting** (`Dockerfile`, `scripts/serve.js`, `render.yaml`,
+  `docs/DEPLOY.md`): the whole product as one container behind one port —
+  web + api + issuer with a private Redis and MinIO — needing only a Postgres
+  URL. Neither Redis nor MinIO holds anything that outlives a restart (a JWKS
+  cache; KYC images that live seconds before deletion), so no volumes are
+  needed. One Postgres database serves both services: the issuer's migrations
+  run under `issuer_migrations` so its history doesn't collide with the api's
+  `pgmigrations` (both have an `initial-schema`). The gateway now works out the
+  real client IP from `cf-connecting-ip` or a configured number of trusted
+  proxy hops — never the leftmost, client-controlled `X-Forwarded-For` entry.
+  The three stale per-service Dockerfiles (alpine, no `credentials` workspace —
+  they could not have built) were removed; `docker compose --profile app`
+  now runs the same image.
+- `DEMO_PASSWORD` lets a hosted demo rotate the shared password; the login
+  page gets it from `/health` in demo mode instead of baking it into the bundle.
 
-Public hosting on a real cloud provider (managed Postgres/Redis/object
-storage, canvas + WASM in a container) — `demo:live` tunnels the machine
-running the demo instead. Playwright happy path and an architecture diagram
-are still open.
+### Not done / not verified
+
+- **The Dockerfile and `render.yaml` were never built or deployed** — Docker
+  isn't installed on this machine. `scripts/serve.js`, the code they run, was
+  exercised locally against a fresh single database with its own Redis and
+  MinIO on alternate ports: migrations for both services, seeding, a full KYC
+  (generated ID → upload through the gateway → OCR → face match → APPROVED),
+  and login with a rotated password. Nothing has been deployed anywhere.
+- The issuer's signing key is regenerated on each redeploy (credentials from
+  before it stop verifying) — mount a disk at `ISSUER_KEYS_DIR` to keep it.
+- Playwright happy path and an architecture diagram are still open.
 
 ## Milestone 8, part 1 — reliability + a real-feeling booking site (done)
 

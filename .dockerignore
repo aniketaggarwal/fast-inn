@@ -1,0 +1,11 @@
+.git
+node_modules
+**/node_modules
+**/.env
+**/.env.local
+.demo
+.demo-run.log
+web/dist
+issuer/keys
+fixtures
+*.log

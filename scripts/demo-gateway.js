@@ -8,6 +8,9 @@
 //   /<bucket>/*   -> MinIO    (untouched — see below)
 //   everything else -> web/dist, with SPA fallback to index.html
 //
+// Used by scripts/demo.js (a laptop / tunnel) and scripts/serve.js (the
+// container).
+//
 // MinIO is the subtle one. The guest's browser PUTs KYC images straight to
 // a presigned URL (Section 9.6), and a SigV4 signature covers the request
 // path *and* the Host header. So the path is forwarded exactly as signed
@@ -31,22 +34,32 @@ const MIME = {
   ".woff2": "font/woff2",
 };
 
-function clientIp(req) {
+// Who is really on the other end. Never trusts a client-supplied header on
+// its own: Cloudflare's tunnel sets cf-connecting-ip (only reachable through
+// the tunnel, since the gateway is what the tunnel dials); behind a hosting
+// platform's load balancer, `proxyHops` says how many trusted proxies
+// appended to X-Forwarded-For, so the client is that far from the right —
+// anything to its left is attacker-controlled and ignored. With neither,
+// the socket address is the answer (LAN clients hitting the gateway
+// directly).
+function clientIp(req, proxyHops) {
   const fromTunnel = req.headers["cf-connecting-ip"];
   if (fromTunnel) return fromTunnel;
-  const xff = req.headers["x-forwarded-for"];
-  if (xff) return String(xff).split(",")[0].trim();
+  if (proxyHops > 0 && req.headers["x-forwarded-for"]) {
+    const chain = String(req.headers["x-forwarded-for"]).split(",").map((v) => v.trim());
+    return chain[Math.max(0, chain.length - proxyHops)];
+  }
   return req.socket.remoteAddress;
 }
 
-function proxy(req, res, { host, port, stripPrefix, keepHost }) {
+function proxy(req, res, { host, port, stripPrefix, keepHost, proxyHops }) {
   const headers = { ...req.headers };
   const publicHost = req.headers.host;
   headers["x-forwarded-host"] = publicHost;
   headers["x-forwarded-proto"] = req.headers["x-forwarded-proto"] || "http";
   // Overwritten, not appended: the backends trust exactly one hop (this
   // gateway), so this must be the real client, not a chain.
-  headers["x-forwarded-for"] = clientIp(req);
+  headers["x-forwarded-for"] = clientIp(req, proxyHops);
   if (!keepHost) headers.host = `${host}:${port}`;
 
   const upstream = http.request(
@@ -80,16 +93,16 @@ function serveStatic(webDir, req, res) {
   fs.createReadStream(file).pipe(res);
 }
 
-function startGateway({ port, apiPort, issuerPort, minioPort, bucket, webDir, host = "0.0.0.0" }) {
+function startGateway({ port, apiPort, issuerPort, minioPort, bucket, webDir, host = "0.0.0.0", proxyHops = 0 }) {
   const server = http.createServer((req, res) => {
     if (req.url === "/api" || req.url.startsWith("/api/")) {
-      return proxy(req, res, { host: "127.0.0.1", port: apiPort, stripPrefix: "/api" });
+      return proxy(req, res, { host: "127.0.0.1", port: apiPort, stripPrefix: "/api", proxyHops });
     }
     if (req.url === "/issuer" || req.url.startsWith("/issuer/")) {
-      return proxy(req, res, { host: "127.0.0.1", port: issuerPort, stripPrefix: "/issuer" });
+      return proxy(req, res, { host: "127.0.0.1", port: issuerPort, stripPrefix: "/issuer", proxyHops });
     }
     if (req.url.startsWith(`/${bucket}/`)) {
-      return proxy(req, res, { host: "127.0.0.1", port: minioPort, keepHost: true });
+      return proxy(req, res, { host: "127.0.0.1", port: minioPort, keepHost: true, proxyHops });
     }
     return serveStatic(webDir, req, res);
   });

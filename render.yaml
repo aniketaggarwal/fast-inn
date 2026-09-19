@@ -1,0 +1,38 @@
+# Render Blueprint: New + > Blueprint > pick this repo. Creates a Postgres
+# database and one Docker web service running the whole stack (Dockerfile).
+# Plan names change over time — check them against Render's current pricing.
+databases:
+  - name: hotelverify-db
+    plan: free            # free databases expire after 30 days; fine for a demo
+    databaseName: hotelverify
+
+services:
+  - type: web
+    name: hotelverify
+    runtime: docker
+    # Needs real memory: the issuer loads face-recognition models (WASM) and
+    # Tesseract per KYC request, on top of Redis + MinIO in the same container.
+    # A 512 MB plan is likely to be OOM-killed.
+    plan: standard
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hotelverify-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ISSUER_SERVICE_TOKEN
+        generateValue: true
+      # Shown on the login page as tap-to-fill accounts (DEMO_MODE) and used
+      # for every seeded account. Generated, so not the well-known default —
+      # but still visible to anyone who opens the site while DEMO_MODE is on.
+      - key: DEMO_MODE
+        value: "true"
+      - key: DEMO_PASSWORD
+        generateValue: true
+      # One trusted proxy (Render's load balancer) sits in front of the gateway.
+      - key: GATEWAY_PROXY_HOPS
+        value: "1"

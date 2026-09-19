@@ -5,7 +5,9 @@ require("dotenv").config({ path: "api/.env" });
 const { Pool } = require("pg");
 const argon2 = require("argon2");
 
-const DEMO_PASSWORD = "Password123!";
+// Overridable so a hosted demo can rotate it (DEMO_PASSWORD); the login page
+// shows whatever this is in demo mode, so it is a shared throwaway either way.
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "Password123!";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://hotelverify:hotelverify@localhost:5432/hotelverify_app",

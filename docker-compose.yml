@@ -47,67 +47,27 @@ services:
       timeout: 5s
       retries: 10
 
-  issuer:
+  # The whole product in one container (root Dockerfile, run by
+  # scripts/serve.js): web + api + issuer, with its own Redis and MinIO. It
+  # only needs Postgres from this file. Opt-in so `docker compose up -d
+  # postgres redis minio` (local development) is unchanged:
+  #   docker compose --profile app up --build      -> http://localhost:8080
+  app:
+    profiles: ["app"]
     build:
       context: .
-      dockerfile: issuer/Dockerfile
     environment:
-      PORT: 4001
-      DATABASE_URL: postgresql://hotelverify:hotelverify@postgres:5432/hotelverify_issuer
-      # S3_ENDPOINT is what the issuer container itself uses (internal
-      # docker network name). S3_PUBLIC_ENDPOINT is what gets baked into
-      # presigned URLs, since those are followed by the guest's browser on
-      # the host, which can't resolve the "minio" hostname.
-      S3_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: http://localhost:9000
-      S3_ACCESS_KEY: hotelverify
-      S3_SECRET_KEY: hotelverify_dev_only
-      S3_BUCKET: hotelverify-kyc
-      S3_REGION: us-east-1
-      ISSUER_SERVICE_TOKEN: dev_issuer_service_token_change_me
-    ports:
-      - "4001:4001"
-    volumes:
-      - ./issuer/keys:/app/issuer/keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-
-  api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    environment:
-      PORT: 4000
+      PORT: 8080
       DATABASE_URL: postgresql://hotelverify:hotelverify@postgres:5432/hotelverify_app
-      REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: dev_access_secret_change_me
       JWT_REFRESH_SECRET: dev_refresh_secret_change_me
-      ISSUER_BASE_URL: http://issuer:4001
       ISSUER_SERVICE_TOKEN: dev_issuer_service_token_change_me
+      DEMO_MODE: "true"
     ports:
-      - "4000:4000"
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      issuer:
-        condition: service_started
-
-  web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
-    environment:
-      VITE_API_BASE: http://localhost:4000
-      VITE_ISSUER_BASE: http://localhost:4001
-    ports:
-      - "5173:5173"
-    depends_on:
-      - api
 
 volumes:
   postgres_data:
