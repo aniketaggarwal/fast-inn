@@ -5,7 +5,8 @@
 //
 //   /api/*        -> api      (prefix stripped)
 //   /issuer/*     -> issuer   (prefix stripped)
-//   /<bucket>/*   -> MinIO    (untouched — see below)
+//   /<bucket>/*   -> MinIO    (untouched — see below; only when minioPort is set,
+//                              i.e. scripts/demo.js — the container stores images itself)
 //   everything else -> web/dist, with SPA fallback to index.html
 //
 // Used by scripts/demo.js (a laptop / tunnel) and scripts/serve.js (the
@@ -101,7 +102,7 @@ function startGateway({ port, apiPort, issuerPort, minioPort, bucket, webDir, ho
     if (req.url === "/issuer" || req.url.startsWith("/issuer/")) {
       return proxy(req, res, { host: "127.0.0.1", port: issuerPort, stripPrefix: "/issuer", proxyHops });
     }
-    if (req.url.startsWith(`/${bucket}/`)) {
+    if (minioPort && req.url.startsWith(`/${bucket}/`)) {
       return proxy(req, res, { host: "127.0.0.1", port: minioPort, keepHost: true, proxyHops });
     }
     return serveStatic(webDir, req, res);

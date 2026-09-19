@@ -10,6 +10,7 @@ const jwksRoutes = require("./routes/jwks");
 const revocationRoutes = require("./routes/revocation");
 const livenessRoutes = require("./routes/liveness");
 const demoRoutes = require("./routes/demo");
+const storageRoutes = require("./routes/storage");
 
 function createApp() {
   const app = express();
@@ -31,6 +32,7 @@ function createApp() {
   app.use(revocationRoutes);
   app.use(livenessRoutes);
   app.use(demoRoutes);
+  app.use(storageRoutes);
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

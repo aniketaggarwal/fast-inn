@@ -1,11 +1,12 @@
 // Production/container entrypoint: everything HotelVerify needs in ONE
 // process tree, behind the gateway on $PORT. Used by the Dockerfile.
 //
-// The only external dependency is Postgres (DATABASE_URL). Redis and MinIO
-// run alongside — both hold nothing that outlives a restart:
+// The only external dependency is Postgres (DATABASE_URL). Redis runs
+// alongside, and KYC images go to the issuer's filesystem storage driver —
+// neither holds anything that outlives a restart:
 //   - Redis only caches the issuer's JWKS/revocation list (refetched on demand)
-//   - MinIO only holds KYC images for the seconds between upload and
-//     credential issuance (Section 9.6 deletes them right after)
+//   - KYC images exist for the seconds between upload and credential issuance
+//     (Section 9.6 deletes them right after)
 // What does NOT survive a restart is the issuer's signing key (a generated
 // file) — credentials issued before a redeploy stop verifying, because their
 // key is no longer in the JWKS. Fine for a demo; a real deployment would
@@ -19,7 +20,6 @@
 // Optional env : PORT (10000)  DEMO_MODE  DEMO_PASSWORD  REDIS_URL
 //                GATEWAY_PROXY_HOPS (1 behind a hosting load balancer)
 const { spawnSync } = require("child_process");
-const crypto = require("crypto");
 const path = require("path");
 const { Pool } = require("pg");
 const { startGateway } = require("./demo-gateway");
@@ -30,8 +30,6 @@ const PORT = Number(process.env.PORT) || 10000;
 const API_PORT = 4100;
 const ISSUER_PORT = 4101;
 const REDIS_PORT = Number(process.env.INTERNAL_REDIS_PORT) || 6379;
-const MINIO_PORT = Number(process.env.INTERNAL_MINIO_PORT) || 9000;
-const BUCKET = process.env.S3_BUCKET || "hotelverify-kyc";
 
 const log = (msg) => console.log(`[serve] ${msg}`);
 function fail(msg) {
@@ -69,20 +67,10 @@ async function main() {
     redisUrl = `redis://127.0.0.1:${REDIS_PORT}`;
   }
 
-  // Random per boot: only the issuer and MinIO ever use these — browsers
-  // reach storage through presigned URLs, never with these credentials.
-  const s3 = {
-    S3_ACCESS_KEY: process.env.S3_ACCESS_KEY || "hv" + crypto.randomBytes(8).toString("hex"),
-    S3_SECRET_KEY: process.env.S3_SECRET_KEY || crypto.randomBytes(24).toString("hex"),
-    S3_BUCKET: BUCKET,
-  };
-  // Always the bundled MinIO: the gateway routes the bucket path to it, and
-  // presigned URLs are signed for the public origin (S3_PUBLIC_ENDPOINT=auto).
-  log("starting MinIO");
-  supervisor.launch("minio", "minio", ["server", process.env.MINIO_DATA_DIR || "/tmp/minio-data", "--address", `127.0.0.1:${MINIO_PORT}`], {
-    env: { MINIO_ROOT_USER: s3.S3_ACCESS_KEY, MINIO_ROOT_PASSWORD: s3.S3_SECRET_KEY },
-  });
-  await waitFor(() => portOpen(MINIO_PORT), "MinIO", 30000);
+  // Same-origin signed URLs (issuer/src/storage/fsStorage.js): the browser
+  // PUTs to <public origin>/issuer/storage/object, which the gateway proxies
+  // to the issuer — the "/issuer" is the gateway's mount point.
+  const storage = { STORAGE_DRIVER: "fs", STORAGE_URL_PREFIX: "/issuer", STORAGE_DIR: process.env.STORAGE_DIR || "/tmp/hotelverify-storage" };
 
   log("migrating database");
   run(path.join(ROOT, "api"), "npx", ["node-pg-migrate", "-m", "migrations", "up"], { DATABASE_URL: dbUrl });
@@ -103,7 +91,7 @@ async function main() {
   });
   supervisor.launch("issuer", "node", ["src/server.js"], {
     cwd: path.join(ROOT, "issuer"),
-    env: { ...internal, ...s3, PORT: String(ISSUER_PORT), S3_ENDPOINT: `http://127.0.0.1:${MINIO_PORT}`, S3_PUBLIC_ENDPOINT: "auto" },
+    env: { ...internal, ...storage, PORT: String(ISSUER_PORT) },
   });
   await waitFor(healthy(API_PORT), "api");
   await waitFor(healthy(ISSUER_PORT), "issuer");
@@ -112,8 +100,6 @@ async function main() {
     port: PORT,
     apiPort: API_PORT,
     issuerPort: ISSUER_PORT,
-    minioPort: MINIO_PORT,
-    bucket: BUCKET,
     webDir: path.join(ROOT, "web", "dist"),
     proxyHops: Number(process.env.GATEWAY_PROXY_HOPS) || 0,
   });

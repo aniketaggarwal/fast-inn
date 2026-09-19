@@ -58,12 +58,26 @@ failed; fixed by parsing the file instead of loading it.
 - `DEMO_PASSWORD` lets a hosted demo rotate the shared password; the login
   page gets it from `/health` in demo mode instead of baking it into the bundle.
 
+- **Storage in the container is filesystem-backed, not MinIO.** The first
+  Render build failed with `curl: (22) ... 410` — `dl.min.io` no longer serves
+  the MinIO server binary, so the image could never have been built. Instead of
+  depending on another vendor's download, the issuer got a second storage driver
+  (`STORAGE_DRIVER=fs`, `issuer/src/storage/fsStorage.js` + `routes/storage.js`):
+  same contract as the S3 one — nothing public, every access a short-lived URL
+  for one operation on one key — with an HMAC over (operation, key, expiry) in
+  place of a SigV4 signature. Keys must match the exact shape `newObjectKey`
+  produces, so nothing can traverse out of the storage directory. Dev, tests and
+  `npm run demo` still use S3/MinIO; tests cover the round trip, tampered key /
+  swapped operation / expiry / bad signature, and traversal. Re-verified the
+  container entrypoint end to end: a full KYC through the gateway ends
+  `APPROVED` with zero image files left on disk.
+
 ### Not done / not verified
 
 - **The Dockerfile and `render.yaml` were never built or deployed** — Docker
   isn't installed on this machine. `scripts/serve.js`, the code they run, was
   exercised locally against a fresh single database with its own Redis and
-  MinIO on alternate ports: migrations for both services, seeding, a full KYC
+  filesystem storage: migrations for both services, seeding, a full KYC
   (generated ID → upload through the gateway → OCR → face match → APPROVED),
   and login with a rotated password. Nothing has been deployed anywhere.
 - The issuer's signing key is regenerated on each redeploy (credentials from

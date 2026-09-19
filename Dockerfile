@@ -1,4 +1,4 @@
-# All-in-one image: web + api + issuer + Redis + MinIO behind one port, run by
+# All-in-one image: web + api + issuer + Redis behind one port, run by
 # scripts/serve.js. The only thing it needs from outside is Postgres
 # (DATABASE_URL). See docs/DEPLOY.md.
 #
@@ -6,13 +6,10 @@
 # musl would mean compiling them from source.
 FROM node:22-bookworm-slim
 
-ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      redis-server curl ca-certificates \
+      redis-server ca-certificates \
       libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL "https://dl.min.io/server/minio/release/linux-${TARGETARCH}/minio" -o /usr/local/bin/minio \
-    && chmod +x /usr/local/bin/minio
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

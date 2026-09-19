@@ -107,7 +107,9 @@ async function objectExists(key) {
   }
 }
 
-module.exports = {
+// One-container deployment swaps in the filesystem driver (see fsStorage.js);
+// everything else — dev, tests, docker-compose infra — uses S3/MinIO.
+const s3Storage = {
   BUCKET,
   ensureBucket,
   newObjectKey,
@@ -117,3 +119,5 @@ module.exports = {
   deleteObject,
   objectExists,
 };
+
+module.exports = process.env.STORAGE_DRIVER === "fs" ? require("./fsStorage") : s3Storage;

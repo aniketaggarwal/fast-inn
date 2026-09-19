@@ -11,7 +11,7 @@ services:
     name: hotelverify
     runtime: docker
     # Needs real memory: the issuer loads face-recognition models (WASM) and
-    # Tesseract per KYC request, on top of Redis + MinIO in the same container.
+    # Tesseract per KYC request, on top of Redis in the same container.
     # A 512 MB plan is likely to be OOM-killed.
     plan: standard
     healthCheckPath: /api/health

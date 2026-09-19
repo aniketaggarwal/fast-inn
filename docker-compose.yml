@@ -48,7 +48,7 @@ services:
       retries: 10
 
   # The whole product in one container (root Dockerfile, run by
-  # scripts/serve.js): web + api + issuer, with its own Redis and MinIO. It
+  # scripts/serve.js): web + api + issuer, with its own Redis and filesystem image storage. It
   # only needs Postgres from this file. Opt-in so `docker compose up -d
   # postgres redis minio` (local development) is unchanged:
   #   docker compose --profile app up --build      -> http://localhost:8080

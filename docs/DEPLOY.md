@@ -1,7 +1,8 @@
 # Deploying HotelVerify
 
 The whole product ships as **one container** (`Dockerfile`): web, api, issuer,
-plus a private Redis and MinIO, all behind a single port. Its only external
+plus a private Redis, all behind a single port, with KYC images held on the
+container's own disk (`STORAGE_DRIVER=fs`, signed short-lived URLs). Its only external
 dependency is Postgres. `scripts/serve.js` is the entrypoint — it migrates,
 seeds an empty database, starts everything, and only opens the port once api
 and issuer are healthy.
@@ -12,7 +13,7 @@ and issuer are healthy.
 
 1. The repo is at <https://github.com/aniketaggarwal/fast-inn> (`origin/main`).
 2. On [render.com](https://render.com): **New + → Blueprint**, pick the repo, **Apply**.
-3. First build takes several minutes (native deps, MinIO download). When it's
+3. First build takes several minutes (native dependencies). When it's
    live, open the service URL. Get the shared demo password from the service's
    **Environment** tab (`DEMO_PASSWORD`) — the login page also shows tap-to-fill
    accounts while `DEMO_MODE=true`.
@@ -43,8 +44,8 @@ Any host that runs a Dockerfile and provides a Postgres URL works the same way
   credentials issued before a redeploy stop verifying (their key is gone from
   the JWKS) and guests re-verify. Mount a persistent disk at `ISSUER_KEYS_DIR`
   to keep it.
-- Redis (a cache) and MinIO (KYC images that live for seconds before being
-  deleted) — nothing of value.
+- Redis (a cache) and the image storage directory (KYC images that live for
+  seconds before being deleted) — nothing of value.
 
 Bookings, users, consents and the audit log are in Postgres and survive.
 
@@ -59,7 +60,7 @@ Bookings, users, consents and the audit log are in Postgres and survive.
 ## Status
 
 `scripts/serve.js` — the part that does the work — was run and exercised end to
-end locally (single database, its own Redis and MinIO, a full KYC through the
+end locally (single database, its own Redis and filesystem storage, a full KYC through the
 gateway). The **Dockerfile and `render.yaml` have not been built or deployed**:
 Docker isn't installed on the machine this was written on. Expect to iterate on
 the first build (most likely spots: an apt package name, or a plan name).
