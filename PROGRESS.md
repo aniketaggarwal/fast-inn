@@ -72,6 +72,22 @@ failed; fixed by parsing the file instead of loading it.
   container entrypoint end to end: a full KYC through the gateway ends
   `APPROVED` with zero image files left on disk.
 
+- **Live camera never started (regression from the Milestone 6 UI polish).**
+  The polish pass rendered a spinner during "Requesting camera access…" and
+  only mounted the `<video>` afterwards, but `getUserMedia`'s result was
+  attached to `videoRef.current` at the moment it resolved — when that ref was
+  still null. Result: camera light on, dead preview, black frames. Undetectable
+  earlier because the browser pane blocks cameras, so the live path had never
+  actually run. Fixed by holding the stream in state and attaching it in an
+  effect once the element exists. Also removed the hard 8 s deadline (it failed
+  guests who were still reading the permission prompt) in favour of a hint plus
+  a Cancel button, and added specific messages for "camera in use" and
+  "needs https". Verified with a simulated camera: preview attaches and plays
+  (`videoWidth` 640, `srcObject` set), and countdown → 6 frames → server
+  liveness check → "Live selfie captured". Limitation: the test tab was hidden,
+  so the fake stream itself froze and the capture step was fed moving frames
+  directly; a real physical camera is still unverified.
+
 ### Not done / not verified
 
 - **The Dockerfile and `render.yaml` were never built or deployed** — Docker

@@ -37,28 +37,55 @@ export function LivenessCapture({ onCaptured }) {
     };
   }, []);
 
+  // The <video> element only exists once status is past "starting", so the
+  // stream can't be attached at the moment getUserMedia resolves — it's kept
+  // in state and attached here, after the element has mounted. (Attaching
+  // inside startCamera silently did nothing: a live camera light, a dead
+  // preview, and a capture of black frames.)
+  const [stream, setStream] = useState(null);
+  const attemptRef = useRef(0);
+  const [slowPermission, setSlowPermission] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    video.play().catch((err) => {
+      setError(`Couldn't start the camera preview: ${err.message}`);
+      setStatus("idle");
+    });
+  }, [stream, status]);
+
   const startCamera = async () => {
     setError(null);
+    setSlowPermission(false);
     setStatus("starting");
+    const attempt = ++attemptRef.current;
+    // Not a hard timeout: the browser's permission prompt waits on a human,
+    // and a fixed deadline would fail a guest who is still reading it. After a
+    // few seconds just hint at where to look; the guest can also cancel.
+    const hint = setTimeout(() => attempt === attemptRef.current && setSlowPermission(true), 6000);
     try {
-      // A blocked/never-answered permission prompt can leave getUserMedia
-      // pending forever rather than rejecting (observed against this
-      // project's own sandboxed browser-pane testing) — a plain `await`
-      // here would leave the button stuck on "starting…" indefinitely.
-      const stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for camera access")), 8000)),
-      ]);
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      if (attempt !== attemptRef.current) {
+        media.getTracks().forEach((t) => t.stop()); // cancelled while the prompt was open
+        return;
       }
+      streamRef.current = media;
+      setStream(media);
       setStatus("ready");
     } catch (err) {
+      if (attempt !== attemptRef.current) return;
       setError(cameraErrorMessage(err));
       setStatus("idle");
+    } finally {
+      clearTimeout(hint);
     }
+  };
+
+  const cancelStart = () => {
+    attemptRef.current += 1;
+    setStatus("idle");
   };
 
   const beginCountdown = () => {
@@ -156,6 +183,14 @@ export function LivenessCapture({ onCaptured }) {
       {status === "starting" && (
         <div className="flex items-center justify-center gap-2 rounded bg-slate-100 py-6 text-sm text-slate-500">
           <Spinner /> Requesting camera access…
+          {slowPermission && (
+            <span className="ml-1 text-xs text-slate-500">
+              Waiting for permission — look for the browser's camera prompt.{" "}
+              <button type="button" onClick={cancelStart} className="underline">
+                Cancel
+              </button>
+            </span>
+          )}
         </div>
       )}
 
@@ -228,7 +263,8 @@ export function LivenessCapture({ onCaptured }) {
 function cameraErrorMessage(err) {
   if (err.name === "NotAllowedError") return "Camera access was denied — allow camera access, or upload a photo instead.";
   if (err.name === "NotFoundError") return "No camera was found on this device — upload a photo instead.";
-  if (err.message?.includes("timed out")) return "Camera access timed out — allow camera access, or upload a photo instead.";
+  if (err.name === "NotReadableError") return "The camera is in use by another app — close it and try again.";
+  if (err.name === "SecurityError" || !window.isSecureContext) return "The camera needs a secure (https) connection — or upload a photo instead.";
   return `Camera access failed: ${err.message}`;
 }
 
